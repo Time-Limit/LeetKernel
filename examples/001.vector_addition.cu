@@ -64,7 +64,7 @@ void solve_merge_request(const float *A, const float *B, float *C,
 }
 
 int main() {
-  static const int N = (1 << 30);
+  static const int N = (1 << 28);
 
   std::vector<float> host_A(N), host_B(N), host_C(N);
   std::random_device rd;
