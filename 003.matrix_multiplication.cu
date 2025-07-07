@@ -2532,20 +2532,32 @@ shared_memory__eliminate_bank_conflict__global_store_memory_colacesing__double_b
   // half-warp.
   const int B_shifted_lane_id =
       ((lane_id + warp_id * 4) % 16 + (lane_id & 0x10)) ^ (warp_id / 4 * 16);
-  const int B_shifted_warp_id = B_shifted_lane_id / 32;
-  const int B_shifted_half_warp_id = B_shifted_warp_id / 16;
-  const int B_shifted_half_warp_lane_id = B_shifted_lane_id % 16;
-  const int B_shifted_quarter_warp_id = B_shifted_warp_id / 8;
-  const int B_shifted_quarter_warp_lane_id = B_shifted_lane_id % 8;
+
+  const int A_sm2reg_offset_mask_0x1 =
+      lane_id / 8 * 256 + (lane_id & 0xfe) % 8 * 4 + lane_id / 8 % 2 * 4;
+  const int A_sm2reg_offset_or_0x1 =
+      lane_id / 8 * 256 + (lane_id | 0x1) % 8 * 4 - lane_id / 8 % 2 * 4;
+
+  const int B_sm2reg_offset =
+      B_shifted_lane_id / 8 * 256 + B_shifted_lane_id % 8 / 4 * 16 +
+      B_shifted_lane_id % 2 * 8 + B_shifted_lane_id / 8 % 2 * 4;
+
+  const int A_sm_dst_offset =
+      (lane_id & 0xf8) + (warp_id + lane_id) % 8 + lane_id % 8 * 32;
+  const int B_sm_dst_offset =
+      warp_id % 4 * 256 + warp_id / 4 * 32 + (lane_id & 0xf8);
+  const int A_global_src_offset =
+      (C_m_top + lane_id / 8 * 8 + warp_id) * K + lane_id % 8;
+  const int B_global_src_offset =
+      warp_id / 4 * N + C_n_left + warp_id % 4 * 32 + lane_id;
 
   // Read `block_tile * k_per_iter` floats from each of A and B in global
   // memory into shared memory per iteration.
   {
+#pragma unroll
     for (int i = 0; i < 4; ++i) {
-      float *A_sm_dst = A_sm + i * 256 + (lane_id & 0xf8) +
-                        (warp_id + lane_id) % 8 + lane_id % 8 * 32;
-      const float *A_global_src =
-          A + (C_m_top + i * 32 + lane_id / 8 * 8 + warp_id) * K + lane_id % 8;
+      float *A_sm_dst = A_sm + i * 256 + A_sm_dst_offset;
+      const float *A_global_src = A + i * 32 * K + A_global_src_offset;
       float reg;
       asm volatile("ld.global.cg.f32 %0, [%1];"
                    : "=f"(reg)
@@ -2554,14 +2566,15 @@ shared_memory__eliminate_bank_conflict__global_store_memory_colacesing__double_b
     }
   }
   {
+#pragma unroll
     for (int i = 0; i < 4; ++i) {
-      const float *B_global_src =
-          B + (i * 2 + warp_id / 4) * N + C_n_left + warp_id % 4 * 32 + lane_id;
+      const float *B_global_src = B + i * 2 * N + B_global_src_offset;
       float reg;
-      asm volatile("ld.global.f32 %0, [%1];" : "=f"(reg) : "l"(B_global_src));
-      int k = i * 2 + warp_id / 4;
-      float *B_sm_dst = B_sm + warp_id % 4 * 256 + k * 32 + (lane_id & 0xf8) + 
-                        (lane_id + k) % 8;
+      asm volatile("ld.global.cg.f32 %0, [%1];"
+                   : "=f"(reg)
+                   : "l"(B_global_src));
+      float *B_sm_dst = B_sm + i * 2 * 32 +
+                        (lane_id + i * 2 + warp_id / 4) % 8 + B_sm_dst_offset;
       *B_sm_dst = reg;
     }
   }
@@ -2576,13 +2589,12 @@ shared_memory__eliminate_bank_conflict__global_store_memory_colacesing__double_b
       const int shared_memory_loading_offset =
           (iter + 1) % 2 * block_tile * k_per_iter;
       {
+#pragma unroll
         for (int i = 0; i < 4; ++i) {
-          float *A_sm_dst = A_sm + shared_memory_loading_offset + i * 256 +
-                            (lane_id & 0xf8) + (warp_id + lane_id) % 8 +
-                            lane_id % 8 * 32;
+          float *A_sm_dst =
+              A_sm + shared_memory_loading_offset + i * 256 + A_sm_dst_offset;
           const float *A_global_src =
-              A + (C_m_top + i * 32 + lane_id / 8 * 8 + warp_id) * K +
-              (iter + 1) * k_per_iter + lane_id % 8;
+              A + (iter + 1) * k_per_iter + i * 32 * K + A_global_src_offset;
           float reg;
           asm volatile("ld.global.cg.f32 %0, [%1];"
                        : "=f"(reg)
@@ -2591,121 +2603,76 @@ shared_memory__eliminate_bank_conflict__global_store_memory_colacesing__double_b
         }
       }
       {
+#pragma unroll
         for (int i = 0; i < 4; ++i) {
           const float *B_global_src =
-              B + ((iter + 1) * k_per_iter + i * 2 + warp_id / 4) * N +
-              C_n_left + warp_id % 4 * 32 + lane_id;
+              B + ((iter + 1) * k_per_iter + i * 2) * N + B_global_src_offset;
           float reg;
-          asm volatile("ld.global.f32 %0, [%1];"
+          asm volatile("ld.global.cg.f32 %0, [%1];"
                        : "=f"(reg)
                        : "l"(B_global_src));
-          int k = i * 2 + warp_id / 4;
-          float *B_sm_dst = B_sm + shared_memory_loading_offset +
-                            warp_id % 4 * 256 + k * 32 + (lane_id & 0xf8) +
-                            (lane_id + k) % 8;
+          float *B_sm_dst = B_sm + shared_memory_loading_offset + i * 2 * 32 +
+                            (lane_id + i * 2 + warp_id / 4) % 8 +
+                            B_sm_dst_offset;
           *B_sm_dst = reg;
         }
       }
     }
-    //  #pragma unroll
-    //      for (int k = 0; k < k_per_iter; ++k) {
-    //  #pragma unroll
-    //        for (int inner_loop = 0; inner_loop < 8; inner_loop += 2) {
-    //          // lane_id and  lane_id^1 load same data;
-    //          *(float2 *)&A_reg[inner_loop] =
-    //              *(const float2 *)&A_sm[shared_memory_computing_offset +
-    //                                     quarter_warp_id * 256 +
-    //                                     quarter_warp_lane_id / 2 * 8 +
-    //                                     (inner_loop + quarter_warp_id) % 8];
-    //          // lane_id and lane_id^2 load same data;
-    //          *(float2 *)&B_reg[inner_loop] = *(
-    //              const float2 *)&B_sm[shared_memory_computing_offset +
-    //                                   B_shifted_quarter_warp_id * 256 +
-    //                                   B_shifted_quarter_warp_lane_id / 4 * 16
-    //                                   + B_shifted_quarter_warp_lane_id % 2 *
-    //                                   8 + (inner_loop +
-    //                                   B_shifted_quarter_warp_id) % 8];
-    //  #pragma unroll
-    //          for (int i = 0; i < inner_loop; ++i) {
-    //  #pragma unroll
-    //            for (int j = 0; j < inner_loop; ++j) {
-    //              C_reg[i][j] += A_reg[i] * B_reg[j];
-    //            }
-    //          }
-    //  #pragma unroll
-    //          for (int i = 0; i < 2; ++i) {
-    //  #pragma unroll
-    //            for (int j = 0; j < 2; ++j) {
-    //              C_reg[inner_loop + i][inner_loop + j] +=
-    //                  A_reg[inner_loop + i] * B_reg[inner_loop + j];
-    //            }
-    //          }
-    //        }
-    //      }
     {
       *(float4 *)&A_reg[0] =
           *(const float4 *)&A_sm[shared_memory_computing_offset +
-                                 lane_id / 8 * 256 + (lane_id & 0xfe) % 8 * 4];
+                                 A_sm2reg_offset_mask_0x1];
       *(float4 *)&A_reg[4] =
-          *(const float4 *)&A_sm[shared_memory_computing_offset +
-                                 lane_id / 8 * 256 + (lane_id | 0x1) % 8 * 4];
+          *(const float4
+                *)&A_sm[shared_memory_computing_offset + A_sm2reg_offset_or_0x1];
       *(float4 *)&B_reg[0] =
-          *(const float4 *)&B_sm[shared_memory_computing_offset +
-                                 B_shifted_lane_id / 8 * 256 +
-                                 B_shifted_lane_id % 8 / 4 * 16 +
-                                 B_shifted_lane_id % 2 * 8];
+          *(const float4 *)&B_sm[shared_memory_computing_offset + B_sm2reg_offset];
       *(float4 *)&B_reg[4] =
-          *(const float4 *)&B_sm[shared_memory_computing_offset +
-                                 B_shifted_lane_id / 8 * 256 +
-                                 B_shifted_lane_id % 8 / 4 * 16 +
-                                 B_shifted_lane_id % 2 * 8 + 4];
+          *(const float4
+                *)&B_sm[shared_memory_computing_offset + (B_sm2reg_offset ^ 0x4)];
     }
 #pragma unroll
-         for (int k = 0; k < k_per_iter; ++k) {
-           if (k + 1 < k_per_iter) {
-             const int reg_loading_offset = (k + 1) % 2 * thread_tile;
-             {
-               *(float4 *)&A_reg[0 + reg_loading_offset] =
-                   *(const float4 *)&A_sm[shared_memory_computing_offset +
-                                          (k + 1) * 32 + lane_id / 8 * 256 +
-                                          (lane_id & 0xfe) % 8 * 4];
-               *(float4 *)&A_reg[4 + reg_loading_offset] =
-                   *(const float4 *)&A_sm[shared_memory_computing_offset +
-                                          (k + 1) * 32 + lane_id / 8 * 256 +
-                                          (lane_id | 0x1) % 8 * 4];
-               *(float4 *)&B_reg[0 + reg_loading_offset] = *(
-                   const float4 *)&B_sm[shared_memory_computing_offset +
-                                        (k + 1) * 32 + B_shifted_lane_id / 8 *
-                                        256 + B_shifted_lane_id % 8 / 4 * 16 +
-                                        B_shifted_lane_id % 2 * 8];
-               *(float4 *)&B_reg[4 + reg_loading_offset] = *(
-                   const float4 *)&B_sm[shared_memory_computing_offset +
-                                        (k + 1) * 32 + B_shifted_lane_id / 8 *
-                                        256 + B_shifted_lane_id % 8 / 4 * 16 +
-                                        B_shifted_lane_id % 2 * 8 + 4];
-             }
-           }
-           const int reg_computing_offset = k % 2 * thread_tile;
-     #pragma unroll
-           for (int i = 0; i < thread_tile; ++i) {
-     #pragma unroll
-             for (int j = 0; j < thread_tile; ++j) {
-               C_reg[i][j] += A_reg[(i + k) % thread_tile +
-               reg_computing_offset] *
-                              B_reg[(j + k) % thread_tile +
-                              reg_computing_offset];
-             }
-           }
-         }
+    for (int k = 0; k < k_per_iter; ++k) {
+      if (k + 1 < k_per_iter) {
+        const int reg_loading_offset = (k + 1) % 2 * thread_tile;
+        {
+          *(float4 *)&A_reg[0 + reg_loading_offset] =
+              *(const float4 *)&A_sm[shared_memory_computing_offset +
+                                     (k + 1) * 32 + A_sm2reg_offset_mask_0x1];
+          *(float4 *)&A_reg[4 + reg_loading_offset] =
+              *(const float4 *)&A_sm[shared_memory_computing_offset +
+                                     (k + 1) * 32 + A_sm2reg_offset_or_0x1];
+          *(float4 *)&B_reg[0 + reg_loading_offset] =
+              *(const float4 *)&B_sm[shared_memory_computing_offset +
+                                     (k + 1) * 32 + B_sm2reg_offset];
+          *(float4 *)&B_reg[4 + reg_loading_offset] =
+              *(const float4 *)&B_sm[shared_memory_computing_offset +
+                                     (k + 1) * 32 + (B_sm2reg_offset ^ 0x4)];
+        }
+      }
+      const int reg_computing_offset = k % 2 * thread_tile;
+#pragma unroll
+      for (int i = 0; i < thread_tile; ++i) {
+#pragma unroll
+        for (int j = 0; j < thread_tile; ++j) {
+          C_reg[i][j] += A_reg[(i + k) % thread_tile + reg_computing_offset] *
+                         B_reg[(j + k) % thread_tile + reg_computing_offset];
+        }
+      }
+    }
   }
 
   // C_reg is N-marjor
   if (C_m_top + block_tile <= M && C_n_left + block_tile <= N) {
+#pragma unroll
     for (int i = 0; i < thread_tile; ++i) {
-      int m = C_m_top + lane_id / 2 * 8 + i;
+      int m =
+          C_m_top + lane_id / 2 * 8 + (i + lane_id / 8 % 2 * 4) % thread_tile;
       int n = C_n_left + B_shifted_lane_id / 4 * 16 + B_shifted_lane_id % 2 * 8;
-      *(float4 *)&C[m * N + n] = *(const float4 *)(&C_reg[i][0]);
-      *(float4 *)&C[m * N + n + 4] = *(const float4 *)(&C_reg[i][4]);
+      *(float4 *)&C[m * N + n + B_shifted_lane_id / 8 % 2 * 4] =
+          *(const float4 *)(&C_reg[i][0]);
+      *(float4 *)&C[m * N + n + 4 - B_shifted_lane_id / 8 % 2 * 4] =
+          *(const float4 *)(&C_reg[i][4]);
     }
   } else {
     // for (int i = 0; i < thread_tile; ++i) {
