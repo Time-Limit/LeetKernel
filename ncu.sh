@@ -17,11 +17,10 @@ METRICS=(
 SECTIONS=(
     --section ComputeWorkloadAnalysis
     --section InstructionStats           
+    --section SchedulerStats           
+    --section WarpStateStats
     --section LaunchStats                
-    --section MemoryWorkloadAnalysis     
-    --section MemoryWorkloadAnalysis_Chart
     --section MemoryWorkloadAnalysis_Tables
-    --section SpeedOfLight_HierarchicalSingleRooflineChart
     --section SourceCounters
     --section SpeedOfLight
     --section SpeedOfLight_HierarchicalDoubleRooflineChart

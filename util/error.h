@@ -2,6 +2,7 @@
 
 #define CHECK_CUDA_ERROR()                                                     \
   do {                                                                         \
+    cudaDeviceSynchronize();                                                   \
     cudaError_t err = cudaGetLastError();                                      \
     if (err != cudaSuccess) {                                                  \
       fprintf(stderr, "CUDA error: %s at %s:%d\n", cudaGetErrorString(err),    \
