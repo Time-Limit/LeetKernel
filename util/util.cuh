@@ -4,6 +4,7 @@ template <typename T> __device__ void swap(T &a, T &b) {
   b = tmp;
 }
 
-__device__ __inline__ void FETCH_FLOAT4(void *dst, const void *src) {
-  *(float4 *)dst = *(float4 *)src;
-}
+#define OFFSET(row, col, stride) \
+  ((row) * (stride) + (col))
+#define FETCH_FLOAT4(dst, src) \
+  *(float4 *)(&(dst)) = *(const float4 *)(&(src))
