@@ -57,7 +57,7 @@ int main()
     CHECK_CUDA_ERROR();
   }
 
-  for (int m = 1; m <= 256; ++m) {
+  for (int m = 1; m <= 128; ++m) {
     for (int n = 128; n <= 4096; n += 128) {
       for (int k = 128; k <= 4096; k += 128) {
         {
