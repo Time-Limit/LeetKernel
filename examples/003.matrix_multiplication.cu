@@ -38,7 +38,7 @@ __global__ void kahan(const float *A, const float *B, float *C, int M, int N,
 void launch_kahan(const float *A, const float *B, float *C, int M, int N,
                   int K) {
   dim3 threads_per_block(16, 16);
-  dim3 blocks_per_grid((K + threads_per_block.x - 1) / threads_per_block.x,
+  dim3 blocks_per_grid((N + threads_per_block.x - 1) / threads_per_block.x,
                        (M + threads_per_block.y - 1) / threads_per_block.y);
 
   kahan<<<blocks_per_grid, threads_per_block>>>(A, B, C, M, N, K);
