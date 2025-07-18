@@ -18,35 +18,33 @@ void LLMMM::tune(const uint32_t N, const uint32_t K)
     for (const auto& list : {unaligned_M_mm_list, aligned_M_mm_list}) {
       for (const auto& [config, mm] : list) {
         if (config.is_suitable(M, N, K)) {
-          constexpr auto loop_count = 16;
-          double         sum        = 0;
+          constexpr auto loop_count = 32;
+          float          milliseconds;
+          cudaStream_t   stream;
+          cudaEvent_t    start, stop;
+
+          CHECK_RETURN(cudaStreamCreate(&stream));
+          CHECK_RETURN(cudaEventCreate(&start));
+          CHECK_RETURN(cudaEventCreate(&stop));
+
+          CHECK_RETURN(cudaEventRecord(start, stream));
           for (int loop = 0; loop < loop_count; ++loop) {
-            cudaStream_t stream;
-            cudaEvent_t  start, stop;
-
-            CHECK_RETURN(cudaStreamCreate(&stream));
-            CHECK_RETURN(cudaEventCreate(&start));
-            CHECK_RETURN(cudaEventCreate(&stop));
-
-            CHECK_RETURN(cudaEventRecord(start, stream));
             mm(A, B, C, M, N, K, stream);
-            CHECK_RETURN(cudaEventRecord(stop, stream));
-            CHECK_RETURN(cudaStreamSynchronize(stream));
-            float milliseconds;
-            CHECK_RETURN(cudaEventElapsedTime(&milliseconds, start, stop));
-            sum += milliseconds;
-            CHECK_RETURN(cudaEventDestroy(start));
-            CHECK_RETURN(cudaEventDestroy(stop));
-            CHECK_RETURN(cudaStreamDestroy(stream));
           }
-          if (sum / loop_count < opt_microseconds) {
-            opt_microseconds = sum / loop_count;
+          CHECK_RETURN(cudaEventRecord(stop, stream));
+          CHECK_RETURN(cudaStreamSynchronize(stream));
+          CHECK_RETURN(cudaEventElapsedTime(&milliseconds, start, stop));
+          CHECK_RETURN(cudaEventDestroy(start));
+          CHECK_RETURN(cudaEventDestroy(stop));
+          CHECK_RETURN(cudaStreamDestroy(stream));
+          if (milliseconds / loop_count < opt_microseconds) {
+            opt_microseconds = milliseconds / loop_count;
             opt_config       = config;
           }
         }
       }
     }
-    printf("M=%3d, N=%3d, K=%3d, cost=%8.3lf, config=%s", M, N, K, opt_microseconds, opt_config.info().c_str());
+    printf("M=%3d, N=%3d, K=%3d, cost=%8.3lf, config=%s\n", M, N, K, opt_microseconds, opt_config.info().c_str());
   }
   CHECK_RETURN(cudaFree(A));
   CHECK_RETURN(cudaFree(B));

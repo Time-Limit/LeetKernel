@@ -9,3 +9,8 @@ target_link_libraries(test_verify PRIVATE llmmm)
 add_executable(test_tune test_tune.cc)
 
 target_link_libraries(test_tune PRIVATE llmmm)
+
+add_executable(test_cublas test_cublas.cc)
+
+find_package(CUDA REQUIRED)
+target_link_libraries(test_cublas cublas ${CUDA_LIBRARIES})
