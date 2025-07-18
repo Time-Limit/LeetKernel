@@ -5,7 +5,7 @@
 
 int main()
 {
-  constexpr auto loop_count = 8192 * 4;
+  constexpr auto loop_count = 8192;
   constexpr auto M = 4096, N = 4096, K = 4096;
   // constexpr auto M = 16, N = 16, K = 16;
   float *        A, *B, *C;

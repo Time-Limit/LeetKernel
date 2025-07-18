@@ -32,22 +32,25 @@ class LLMMM {
     int32_t THREAD_TILE_M;
     int32_t THREAD_TILE_N;
     int32_t TILE_K;
+    bool IS_ALIGNED_M;
 
     std::string info() const {
       std::stringstream ss;
-      ss << ((BLOCK_TILE_M == 128) ? "Aligned M" : "Unaligned M");
-      ss << ", BLOCK_TILE_M=" << std::setw(3) << BLOCK_TILE_M;
+      ss << "BLOCK_TILE_M=" << std::setw(3) << BLOCK_TILE_M;
       ss << ", BLOCK_TILE_N=" << std::setw(3) << BLOCK_TILE_N;
       ss << ", TILE_K=" << std::setw(3) << TILE_K;
       ss << ", THREAD_TILE_M=" << std::setw(3) << THREAD_TILE_M;
       ss << ", THREAD_TILE_N=" << std::setw(3) << THREAD_TILE_N;
+      ss << ", IS_ALIGNED_M=" << std::setw(3) << IS_ALIGNED_M;
       return ss.str();
     }
 
     bool is_suitable(int M, int N, int K) const
     {
-      if ((BLOCK_TILE_M == 128 && M % BLOCK_TILE_M != 0) || (BLOCK_TILE_M < 128 && M != BLOCK_TILE_M)) {
-        return false;
+      if (IS_ALIGNED_M) {
+        if (M % BLOCK_TILE_M != 0) {
+          return false;
+        }
       }
       if (N % BLOCK_TILE_N) {
         return false;
