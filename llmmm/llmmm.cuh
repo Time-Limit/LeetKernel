@@ -8,7 +8,93 @@
 
 namespace LLMMM {
 
-template<int BLOCK_TILE_M, int BLOCK_TILE_N, int THREAD_TILE_M, int THREAD_TILE_N, int TILE_K, bool IS_ALIGNED_M>
+template<int BLOCK_TILE_SIZE, int THREAD_TILE_SIZE, bool IS_ALIGNED_REDUCE_BLOCK_TILE>
+__global__ void llmmm_vetor_addition(float* result, const float* vectors, int count, int size)
+{
+  static_assert(BLOCK_TILE_SIZE % THREAD_TILE_SIZE == 0);
+  constexpr int THREAD_COUNT = (BLOCK_TILE_SIZE + THREAD_TILE_SIZE - 1) / THREAD_TILE_SIZE;
+  static_assert(THREAD_COUNT >= 32 && (THREAD_COUNT & (THREAD_COUNT - 1)) == 0);
+
+  // The following checks are to ensure that data can be loaded via float4.
+  constexpr int REG_COUNT = THREAD_TILE_SIZE;
+  static_assert(REG_COUNT % 4 == 0);
+  constexpr int LDG_LOOP_COUNT = REG_COUNT / 4;
+
+  float ldg_reg[2][REG_COUNT];
+  float res_reg[REG_COUNT] = {0};
+
+  const int     block_offset  = blockIdx.x * BLOCK_TILE_SIZE;
+  const int     thread_offset = block_offset + threadIdx.x * 4;
+  constexpr int thread_stride = THREAD_COUNT * 4;
+
+#define global_2_ldg_reg()                                                                                             \
+  {                                                                                                                    \
+    const float* vector = vectors + vector_index * size;                                                               \
+    for (int loop = 0; loop < LDG_LOOP_COUNT; ++loop) {                                                                \
+      if constexpr (IS_ALIGNED_REDUCE_BLOCK_TILE) {                                                                    \
+        FETCH_FLOAT4(ldg_reg[LDG_BUF_INDEX][loop * 4], vector[thread_offset + loop * thread_stride]);                  \
+      }                                                                                                                \
+      else {                                                                                                           \
+        FETCH_FLOAT4(ldg_reg[LDG_BUF_INDEX][loop * 4], vector[(thread_offset + loop * thread_stride) % size]);         \
+      }                                                                                                                \
+    }                                                                                                                  \
+  }
+
+  {
+    constexpr int LDG_BUF_INDEX = 0;
+    constexpr int vector_index  = 0;
+    global_2_ldg_reg();
+  }
+
+  int LDG_BUF_INDEX = 1;
+  int COM_BUF_INDEX = 0;
+  for (int vector_index = 1; vector_index < count; ++vector_index) {
+    global_2_ldg_reg();
+    for (int i = 0; i < REG_COUNT; ++i) {
+      res_reg[i] += ldg_reg[COM_BUF_INDEX][i];
+    }
+    LDG_BUF_INDEX ^= 1;
+    COM_BUF_INDEX ^= 1;
+  }
+  for (int i = 0; i < REG_COUNT; ++i) {
+    res_reg[i] += ldg_reg[COM_BUF_INDEX][i];
+  }
+  for (int loop = 0; loop < REG_COUNT; loop += 4) {
+    if constexpr (IS_ALIGNED_REDUCE_BLOCK_TILE) {
+      asm volatile("st.global.wt.v4.f32 [%0], {%1, %2, %3, %4};"
+                   :
+                   : "l"(&result[thread_offset + loop * thread_stride]),
+                     "f"(res_reg[loop]),
+                     "f"(res_reg[loop + 1]),
+                     "f"(res_reg[loop + 2]),
+                     "f"(res_reg[loop + 3]));
+    }
+    else {
+      int index = thread_offset + loop * thread_stride;
+      asm volatile("{\n"
+                   "  .reg .pred p;\n"
+                   "  setp.ne.b32 p, %0, 0;\n"
+                   "  @p st.global.wt.v4.f32 [%1], {%2, %3, %4, %5};"
+                   "}\n"
+                   :
+                   : "r"(int(index < size)),
+                     "l"(&result[thread_offset + loop * thread_stride]),
+                     "f"(res_reg[loop]),
+                     "f"(res_reg[loop + 1]),
+                     "f"(res_reg[loop + 2]),
+                     "f"(res_reg[loop + 3]));
+    }
+  }
+#undef global_2_ldg_reg
+}
+
+template<int  BLOCK_TILE_M,
+         int  BLOCK_TILE_N,
+         int  THREAD_TILE_M,
+         int  THREAD_TILE_N,
+         int  TILE_K,
+         bool IS_ALIGNED_M,
+         int  SPLIT_K_TILES>
 __global__ void llmmm__overlap_global2sm2reg__quardra_buffer__double_ldg_reg__st_global_wt(
   const float* A, const float* B, float* C, int M, int N, int K)
 {
@@ -50,6 +136,7 @@ __global__ void llmmm__overlap_global2sm2reg__quardra_buffer__double_ldg_reg__st
 
   const int block_m_offset = blockIdx.y * BLOCK_TILE_M;
   const int block_n_offset = blockIdx.x * BLOCK_TILE_N;
+  const int block_k_offset = blockIdx.z * K;
 
   constexpr int CAL_THREADS_ON_M_AXIS = BLOCK_TILE_M / THREAD_TILE_M;
   constexpr int CAL_THREADS_ON_N_AXIS = BLOCK_TILE_N / THREAD_TILE_N;
@@ -62,7 +149,7 @@ __global__ void llmmm__overlap_global2sm2reg__quardra_buffer__double_ldg_reg__st
   constexpr int CAL_THREAD_N_STRIDE     = CAL_THREADS_ON_N_AXIS * 4;
   const int     k_iter_count            = K / TILE_K;
 #define global_2_ldg_reg(LDG_REG_INDEX)                                                                                \
-  {                                                                                                                    \
+  if constexpr (SPLIT_K_TILES == 1) {                                                                                  \
     /* Load A, global -> register */                                                                                   \
     _Pragma("unroll") for (int loop = 0; loop < A_LDG_LOOP_COUNT; ++loop)                                              \
     {                                                                                                                  \
@@ -81,6 +168,30 @@ __global__ void llmmm__overlap_global2sm2reg__quardra_buffer__double_ldg_reg__st
       const int k = (loop * THREAD_COUNT + threadIdx.x) * 4 / BLOCK_TILE_N;                                            \
       const int n = (loop * THREAD_COUNT + threadIdx.x) * 4 % BLOCK_TILE_N;                                            \
       FETCH_FLOAT4(B_ldg_reg[LDG_REG_INDEX][loop * 4], B[OFFSET(k_iter_offset + k, block_n_offset + n, N)]);           \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  else {                                                                                                               \
+    /* Load A, global -> register */                                                                                   \
+    _Pragma("unroll") for (int loop = 0; loop < A_LDG_LOOP_COUNT; ++loop)                                              \
+    {                                                                                                                  \
+      const int m = (loop * THREAD_COUNT + threadIdx.x) * 4 / TILE_K;                                                  \
+      const int k = (loop * THREAD_COUNT + threadIdx.x) * 4 % TILE_K;                                                  \
+      if constexpr (IS_ALIGNED_M) {                                                                                    \
+        FETCH_FLOAT4(A_ldg_reg[LDG_REG_INDEX][loop * 4],                                                               \
+                     A[OFFSET(block_m_offset + m, block_k_offset + k_iter_offset + k, K * gridDim.z)]);                \
+      }                                                                                                                \
+      else {                                                                                                           \
+        FETCH_FLOAT4(A_ldg_reg[LDG_REG_INDEX][loop * 4],                                                               \
+                     A[OFFSET((block_m_offset + m) % M, block_k_offset + k_iter_offset + k, K * gridDim.z)]);          \
+      }                                                                                                                \
+    }                                                                                                                  \
+    /* Load B, global->register */                                                                                     \
+    _Pragma("unroll") for (int loop = 0; loop < B_LDG_LOOP_COUNT; ++loop)                                              \
+    {                                                                                                                  \
+      const int k = (loop * THREAD_COUNT + threadIdx.x) * 4 / BLOCK_TILE_N;                                            \
+      const int n = (loop * THREAD_COUNT + threadIdx.x) * 4 % BLOCK_TILE_N;                                            \
+      FETCH_FLOAT4(B_ldg_reg[LDG_REG_INDEX][loop * 4],                                                                 \
+                   B[OFFSET(block_k_offset + k_iter_offset + k, block_n_offset + n, N)]);                              \
     }                                                                                                                  \
   }
 
@@ -315,6 +426,8 @@ __global__ void llmmm__overlap_global2sm2reg__quardra_buffer__double_ldg_reg__st
     }
   }
 
+  const int C_offset_for_split_k = blockIdx.z * M * N;
+
   if constexpr (IS_ALIGNED_M) {
 #pragma unroll
     for (int i = 0; i < THREAD_TILE_M; ++i) {
@@ -322,11 +435,24 @@ __global__ void llmmm__overlap_global2sm2reg__quardra_buffer__double_ldg_reg__st
 #pragma unroll
       for (int j = 0; j < THREAD_TILE_N; j += 4) {
         const int n = block_n_offset + comp_thread_n_offset + j / 4 * CAL_THREAD_N_STRIDE;
-        asm volatile(
-          "st.global.wt.v4.f32 [%0], {%1, %2, %3, %4};"
-          :
-          : "l"(&C[OFFSET(m, n, N)]), "f"(C_reg[i][j]), "f"(C_reg[i][j + 1]), "f"(C_reg[i][j + 2]), "f"(C_reg[i][j + 3])
-          : "memory");
+        if constexpr (SPLIT_K_TILES == 1) {
+          asm volatile("st.global.wt.v4.f32 [%0], {%1, %2, %3, %4};"
+                       :
+                       : "l"(&C[OFFSET(m, n, N)]),
+                         "f"(C_reg[i][j]),
+                         "f"(C_reg[i][j + 1]),
+                         "f"(C_reg[i][j + 2]),
+                         "f"(C_reg[i][j + 3]));
+        }
+        else {
+          asm volatile("st.global.wt.v4.f32 [%0], {%1, %2, %3, %4};"
+                       :
+                       : "l"(&C[C_offset_for_split_k + OFFSET(m, n, N)]),
+                         "f"(C_reg[i][j]),
+                         "f"(C_reg[i][j + 1]),
+                         "f"(C_reg[i][j + 2]),
+                         "f"(C_reg[i][j + 3]));
+        }
       }
     }
   }
@@ -337,18 +463,34 @@ __global__ void llmmm__overlap_global2sm2reg__quardra_buffer__double_ldg_reg__st
 #pragma unroll
       for (int j = 0; j < THREAD_TILE_N; j += 4) {
         const int n = block_n_offset + comp_thread_n_offset + j / 4 * CAL_THREAD_N_STRIDE;
-        asm volatile("{\n"
-                     "  .reg .pred p;\n"
-                     "  setp.ne.b32 p, %0, 0;\n"
-                     "  st.global.wt.v4.f32 [%1], {%2, %3, %4, %5};"
-                     "}\n"
-                     :
-                     : "r"(int(m < M)),
-                       "l"(&C[OFFSET(m, n, N)]),
-                       "f"(C_reg[i][j]),
-                       "f"(C_reg[i][j + 1]),
-                       "f"(C_reg[i][j + 2]),
-                       "f"(C_reg[i][j + 3]));
+        if constexpr (SPLIT_K_TILES == 1) {
+          asm volatile("{\n"
+                       "  .reg .pred p;\n"
+                       "  setp.ne.b32 p, %0, 0;\n"
+                       "  @p st.global.wt.v4.f32 [%1], {%2, %3, %4, %5};"
+                       "}\n"
+                       :
+                       : "r"(int(m < M)),
+                         "l"(&C[OFFSET(m, n, N)]),
+                         "f"(C_reg[i][j]),
+                         "f"(C_reg[i][j + 1]),
+                         "f"(C_reg[i][j + 2]),
+                         "f"(C_reg[i][j + 3]));
+        }
+        else {
+          asm volatile("{\n"
+                       "  .reg .pred p;\n"
+                       "  setp.ne.b32 p, %0, 0;\n"
+                       "  @p st.global.wt.v4.f32 [%1], {%2, %3, %4, %5};"
+                       "}\n"
+                       :
+                       : "r"(int(m < M)),
+                         "l"(&C[C_offset_for_split_k + OFFSET(m, n, N)]),
+                         "f"(C_reg[i][j]),
+                         "f"(C_reg[i][j + 1]),
+                         "f"(C_reg[i][j + 2]),
+                         "f"(C_reg[i][j + 3]));
+        }
       }
     }
   }
@@ -359,33 +501,43 @@ __global__ void llmmm__overlap_global2sm2reg__quardra_buffer__double_ldg_reg__st
 }
 
 // C = A * B, (M,N) = (M,K) * (K,N)
-template<int BLOCK_TILE_M, int BLOCK_TILE_N, int THREAD_TILE_M, int THREAD_TILE_N, int TILE_K, bool IS_ALIGNED_M>
-void launch_llmmm(const float* A, const float* B, float* C, int M, int N, int K, cudaStream_t stream)
+template<int  BLOCK_TILE_M,
+         int  BLOCK_TILE_N,
+         int  THREAD_TILE_M,
+         int  THREAD_TILE_N,
+         int  TILE_K,
+         bool IS_ALIGNED_M,
+         int  SPLIT_K_TILES,
+         int  REDUCE_BLOCK_TILE,
+         int  REDUCE_THREAD_TILE,
+         bool IS_ALIGNED_REDUCE_BLOCK_TILE>
+void launch_llmmm(const float* A,
+                  const float* B,
+                  float*       C,
+                  int          M,
+                  int          N,
+                  int          K,
+                  void*        workspace,
+                  size_t       workspace_bytes,
+                  cudaStream_t stream)
 {
-  // if (N % 128 != 0 || N <= 0) {
-  //   throw std::runtime_error("Not support N = " + std::to_string(N));
-  // }
-  // if (K % 128 != 0 || K < TILE_K * 4 || K / TILE_K % 2 != 0) {
-  //   throw std::runtime_error("Not support K = " + std::to_string(K));
-  // }
-  // if (M % BLOCK_TILE_M != 0) {
-  //   throw std::runtime_error("Not support M = " + std::to_string(M));
-  // }
   static_assert(16 <= BLOCK_TILE_M && BLOCK_TILE_M <= 128 && (BLOCK_TILE_M & (BLOCK_TILE_M - 1)) == 0);
   static_assert(8 <= BLOCK_TILE_N && BLOCK_TILE_N <= 256 && (BLOCK_TILE_N & (BLOCK_TILE_N - 1)) == 0);
   static_assert(8 <= TILE_K && TILE_K <= 128 && ((TILE_K & (TILE_K - 1)) == 0));
+  static_assert(1 <= SPLIT_K_TILES && SPLIT_K_TILES <= 128 && (SPLIT_K_TILES & (SPLIT_K_TILES - 1)) == 0);
 
-  dim3 grid(N / BLOCK_TILE_N, (M + BLOCK_TILE_M - 1) / BLOCK_TILE_M);
+  dim3 grid(N / BLOCK_TILE_N, (M + BLOCK_TILE_M - 1) / BLOCK_TILE_M, SPLIT_K_TILES);
   dim3 block(host_thread_count_calculator<BLOCK_TILE_M, BLOCK_TILE_N, THREAD_TILE_M, THREAD_TILE_N>());
-  auto kernel_func = &llmmm__overlap_global2sm2reg__quardra_buffer__double_ldg_reg__st_global_wt<BLOCK_TILE_M,
+  auto mm_kernel = &llmmm__overlap_global2sm2reg__quardra_buffer__double_ldg_reg__st_global_wt<BLOCK_TILE_M,
                                                                                                  BLOCK_TILE_N,
                                                                                                  THREAD_TILE_M,
                                                                                                  THREAD_TILE_N,
                                                                                                  TILE_K,
-                                                                                                 IS_ALIGNED_M>;
+                                                                                                 IS_ALIGNED_M,
+                                                                                                 SPLIT_K_TILES>;
 
   static auto result = [&]() -> bool {
-    auto err = cudaFuncSetAttribute(kernel_func, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
+    auto err = cudaFuncSetAttribute(mm_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, 0);
     if (err) {
       std::stringstream log;
       log << "llmmm__overlap_global2sm2reg__quardra_buffer__double_ldg_reg__st_global_wt, " << BLOCK_TILE_M << "x"
@@ -396,203 +548,122 @@ void launch_llmmm(const float* A, const float* B, float* C, int M, int N, int K,
     return true;
   }();
 
-  kernel_func<<<grid, block, 0, stream>>>(A, B, C, M, N, K);
+  if constexpr (SPLIT_K_TILES == 1) {
+    mm_kernel<<<grid, block, 0, stream>>>(A, B, C, M, N, K);
+  }
+  else {
+    const int expected_workspace_bytes = M * N * SPLIT_K_TILES * sizeof(float);
+    if (workspace == nullptr) {
+      throw std::runtime_error("workspace is nullptr");
+    }
+    if (workspace_bytes < expected_workspace_bytes) {
+      throw std::runtime_error("The workspace is too small. It requires " + std::to_string(expected_workspace_bytes)
+                               + " bytes, but only " + std::to_string(workspace_bytes) + " bytes are available.");
+    }
+    mm_kernel<<<grid, block, 0, stream>>>(A, B, (float*)workspace, M, N, K / SPLIT_K_TILES);
+    dim3 reduce_grid((M * N + REDUCE_BLOCK_TILE - 1) / REDUCE_BLOCK_TILE);
+    dim3 reduce_block(REDUCE_BLOCK_TILE / REDUCE_THREAD_TILE);
+    llmmm_vetor_addition<REDUCE_BLOCK_TILE, REDUCE_THREAD_TILE, IS_ALIGNED_REDUCE_BLOCK_TILE>
+      <<<grid, block, 0, stream>>>(C, (float*)workspace, SPLIT_K_TILES, M * N);
+  }
 }
 
 struct MMInstantiatorWrapper {
   template<int BLOCK_TILE_M>
   static void apply()
   {
-#define AddMM(block_tile_m, block_tile_n, thread_tile_m, thread_tile_n, tile_k)                                        \
+#define AddMMWithAlignedParam(block_tile_m,                                                                            \
+                              block_tile_n,                                                                            \
+                              thread_tile_m,                                                                           \
+                              thread_tile_n,                                                                           \
+                              tile_k,                                                                                  \
+                              is_aligne_m,                                                                             \
+                              split_k_tiles,                                                                           \
+                              reduce_block_tile,                                                                       \
+                              reduce_thread_tile,                                                                      \
+                              is_aligned_reduce_block_tile)                                                            \
   {                                                                                                                    \
-    {                                                                                                                  \
-      LLMMM::MMConfig config{.BLOCK_TILE_M  = block_tile_m,                                                            \
-                             .BLOCK_TILE_N  = block_tile_n,                                                            \
-                             .THREAD_TILE_M = thread_tile_m,                                                           \
-                             .THREAD_TILE_N = thread_tile_n,                                                           \
-                             .TILE_K        = tile_k,                                                                  \
-                             .IS_ALIGNED_M  = true};                                                                    \
-      LLMMM::Instance().aligned_M_mm_list.emplace_back(                                                                \
-        config, &launch_llmmm<block_tile_m, block_tile_n, thread_tile_m, thread_tile_n, tile_k, true>);                \
-      std::cout << "MatrixMultiplication" << ", BLOCK_TILE_M=" << std::setw(3) << block_tile_m                         \
-                << ", BLOCK_TILE_N=" << std::setw(3) << block_tile_n << ", THREAD_TILE_M=" << std::setw(3)             \
-                << thread_tile_m << ", THREAD_TILE_N=" << std::setw(3) << thread_tile_n << ", TILE_K=" << std::setw(3) \
-                << tile_k << ", IS_ALIGNED_M=" << true << std::endl;                                                  \
-    }                                                                                                                  \
-    {                                                                                                                  \
-      LLMMM::MMConfig config{.BLOCK_TILE_M  = block_tile_m,                                                            \
-                             .BLOCK_TILE_N  = block_tile_n,                                                            \
-                             .THREAD_TILE_M = thread_tile_m,                                                           \
-                             .THREAD_TILE_N = thread_tile_n,                                                           \
-                             .TILE_K        = tile_k,                                                                  \
-                             .IS_ALIGNED_M  = false};                                                                   \
-      LLMMM::Instance().unaligned_M_mm_list.emplace_back(                                                              \
-        config, &launch_llmmm<block_tile_m, block_tile_n, thread_tile_m, thread_tile_n, tile_k, false>);               \
-      std::cout << "MatrixMultiplication" << ", BLOCK_TILE_M=" << std::setw(3) << block_tile_m                         \
-                << ", BLOCK_TILE_N=" << std::setw(3) << block_tile_n << ", THREAD_TILE_M=" << std::setw(3)             \
-                << thread_tile_m << ", THREAD_TILE_N=" << std::setw(3) << thread_tile_n << ", TILE_K=" << std::setw(3) \
-                << tile_k << ", IS_ALIGNED_M=" << false << std::endl;                                                  \
-    }                                                                                                                  \
+    LLMMM::MMConfig config{                                                                                            \
+      .BLOCK_TILE_M                 = block_tile_m,                                                                    \
+      .BLOCK_TILE_N                 = block_tile_n,                                                                    \
+      .THREAD_TILE_M                = thread_tile_m,                                                                   \
+      .THREAD_TILE_N                = thread_tile_n,                                                                   \
+      .TILE_K                       = tile_k,                                                                          \
+      .IS_ALIGNED_M                 = is_aligne_m,                                                                     \
+      .SPLIT_K_TILES                = split_k_tiles,                                                                   \
+      .REDUCE_BLOCK_TILE            = reduce_block_tile,                                                               \
+      .REDUCE_THREAD_TILE           = reduce_block_tile,                                                               \
+      .IS_ALIGNED_REDUCE_BLOCK_TILE = is_aligned_reduce_block_tile,                                                    \
+    };                                                                                                                 \
+    LLMMM::Instance().mm_list.emplace_back(config,                                                                     \
+                                           &launch_llmmm<block_tile_m,                                                 \
+                                                         block_tile_n,                                                 \
+                                                         thread_tile_m,                                                \
+                                                         thread_tile_n,                                                \
+                                                         tile_k,                                                       \
+                                                         is_aligne_m,                                                  \
+                                                         split_k_tiles,                                                \
+                                                         reduce_block_tile,                                            \
+                                                         reduce_thread_tile,                                           \
+                                                         is_aligned_reduce_block_tile>);                               \
+    std::cout << "MM, " << config.info() << std::endl;                                                                 \
   }
-    if constexpr (BLOCK_TILE_M == 16) {
-      /* clang-format off */
-      AddMM(16,  32,   4,   4,   8); // block_tile_n= 32, tile_k=  8, thread_tile_m=  4, thread_tile_n=  4, thread_count= 32, register_count_per_thread= 56, total_register_count= 2040, shared_memory_bytes=  6144
-      AddMM(16,  32,   4,   4,  16); // block_tile_n= 32, tile_k= 16, thread_tile_m=  4, thread_tile_n=  4, thread_count= 32, register_count_per_thread= 80, total_register_count= 2805, shared_memory_bytes= 12288
-      AddMM(16,  32,   4,   4,  32); // block_tile_n= 32, tile_k= 32, thread_tile_m=  4, thread_tile_n=  4, thread_count= 32, register_count_per_thread=128, total_register_count= 4335, shared_memory_bytes= 24576
-      AddMM(16,  32,   4,   4,  64); // block_tile_n= 32, tile_k= 64, thread_tile_m=  4, thread_tile_n=  4, thread_count= 32, register_count_per_thread=224, total_register_count= 7395, shared_memory_bytes= 49152
-      AddMM(16,  64,   4,   4,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m=  4, thread_tile_n=  4, thread_count= 64, register_count_per_thread= 72, total_register_count= 4845, shared_memory_bytes= 20480
-      AddMM(16,  64,   4,   4,  32); // block_tile_n= 64, tile_k= 32, thread_tile_m=  4, thread_tile_n=  4, thread_count= 64, register_count_per_thread=112, total_register_count= 7395, shared_memory_bytes= 40960
-      AddMM(16,  64,   4,   4,  64); // block_tile_n= 64, tile_k= 64, thread_tile_m=  4, thread_tile_n=  4, thread_count= 64, register_count_per_thread=192, total_register_count=12495, shared_memory_bytes= 81920
-      AddMM(16,  64,   4,   8,   8); // block_tile_n= 64, tile_k=  8, thread_tile_m=  4, thread_tile_n=  8, thread_count= 32, register_count_per_thread= 96, total_register_count= 3315, shared_memory_bytes= 10240
-      AddMM(16,  64,   4,   8,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m=  4, thread_tile_n=  8, thread_count= 32, register_count_per_thread=136, total_register_count= 4590, shared_memory_bytes= 20480
-      AddMM(16,  64,   4,   8,  32); // block_tile_n= 64, tile_k= 32, thread_tile_m=  4, thread_tile_n=  8, thread_count= 32, register_count_per_thread=216, total_register_count= 7140, shared_memory_bytes= 40960
-      AddMM(16,  64,   8,   4,   8); // block_tile_n= 64, tile_k=  8, thread_tile_m=  8, thread_tile_n=  4, thread_count= 32, register_count_per_thread= 96, total_register_count= 3315, shared_memory_bytes= 10240
-      AddMM(16,  64,   8,   4,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m=  8, thread_tile_n=  4, thread_count= 32, register_count_per_thread=136, total_register_count= 4590, shared_memory_bytes= 20480
-      AddMM(16,  64,   8,   4,  32); // block_tile_n= 64, tile_k= 32, thread_tile_m=  8, thread_tile_n=  4, thread_count= 32, register_count_per_thread=216, total_register_count= 7140, shared_memory_bytes= 40960
-      AddMM(16, 128,   4,   4,  32); // block_tile_n=128, tile_k= 32, thread_tile_m=  4, thread_tile_n=  4, thread_count=128, register_count_per_thread=104, total_register_count=13515, shared_memory_bytes= 73728
-      AddMM(16, 128,   4,   8,  16); // block_tile_n=128, tile_k= 16, thread_tile_m=  4, thread_tile_n=  8, thread_count= 64, register_count_per_thread=128, total_register_count= 8415, shared_memory_bytes= 36864
-      AddMM(16, 128,   4,   8,  32); // block_tile_n=128, tile_k= 32, thread_tile_m=  4, thread_tile_n=  8, thread_count= 64, register_count_per_thread=200, total_register_count=13005, shared_memory_bytes= 73728
-      AddMM(16, 128,   4,  16,   8); // block_tile_n=128, tile_k=  8, thread_tile_m=  4, thread_tile_n= 16, thread_count= 32, register_count_per_thread=176, total_register_count= 5865, shared_memory_bytes= 18432
-      AddMM(16, 128,   8,   4,  16); // block_tile_n=128, tile_k= 16, thread_tile_m=  8, thread_tile_n=  4, thread_count= 64, register_count_per_thread=128, total_register_count= 8415, shared_memory_bytes= 36864
-      AddMM(16, 128,   8,   4,  32); // block_tile_n=128, tile_k= 32, thread_tile_m=  8, thread_tile_n=  4, thread_count= 64, register_count_per_thread=200, total_register_count=13005, shared_memory_bytes= 73728
-      AddMM(16, 128,   8,   8,   8); // block_tile_n=128, tile_k=  8, thread_tile_m=  8, thread_tile_n=  8, thread_count= 32, register_count_per_thread=168, total_register_count= 5610, shared_memory_bytes= 18432
-      AddMM(16, 128,  16,   4,   8); // block_tile_n=128, tile_k=  8, thread_tile_m= 16, thread_tile_n=  4, thread_count= 32, register_count_per_thread=176, total_register_count= 5865, shared_memory_bytes= 18432
-      /* clang-format on */
-    }
-    else if constexpr (BLOCK_TILE_M == 32) {
-      /* clang-format off */
-      AddMM(32,  16,   4,   4,   8); // block_tile_n= 16, tile_k=  8, thread_tile_m=  4, thread_tile_n=  4, thread_count= 32, register_count_per_thread= 56, total_register_count= 2040, shared_memory_bytes=  6144
-      AddMM(32,  16,   4,   4,  16); // block_tile_n= 16, tile_k= 16, thread_tile_m=  4, thread_tile_n=  4, thread_count= 32, register_count_per_thread= 80, total_register_count= 2805, shared_memory_bytes= 12288
-      AddMM(32,  16,   4,   4,  32); // block_tile_n= 16, tile_k= 32, thread_tile_m=  4, thread_tile_n=  4, thread_count= 32, register_count_per_thread=128, total_register_count= 4335, shared_memory_bytes= 24576
-      AddMM(32,  16,   4,   4,  64); // block_tile_n= 16, tile_k= 64, thread_tile_m=  4, thread_tile_n=  4, thread_count= 32, register_count_per_thread=224, total_register_count= 7395, shared_memory_bytes= 49152
-      AddMM(32,  32,   4,   4,   8); // block_tile_n= 32, tile_k=  8, thread_tile_m=  4, thread_tile_n=  4, thread_count= 64, register_count_per_thread= 48, total_register_count= 3315, shared_memory_bytes=  8192
-      AddMM(32,  32,   4,   4,  16); // block_tile_n= 32, tile_k= 16, thread_tile_m=  4, thread_tile_n=  4, thread_count= 64, register_count_per_thread= 64, total_register_count= 4335, shared_memory_bytes= 16384
-      AddMM(32,  32,   4,   4,  32); // block_tile_n= 32, tile_k= 32, thread_tile_m=  4, thread_tile_n=  4, thread_count= 64, register_count_per_thread= 96, total_register_count= 6375, shared_memory_bytes= 32768
-      AddMM(32,  32,   4,   4,  64); // block_tile_n= 32, tile_k= 64, thread_tile_m=  4, thread_tile_n=  4, thread_count= 64, register_count_per_thread=160, total_register_count=10455, shared_memory_bytes= 65536
-      AddMM(32,  32,   4,   8,   8); // block_tile_n= 32, tile_k=  8, thread_tile_m=  4, thread_tile_n=  8, thread_count= 32, register_count_per_thread= 88, total_register_count= 3060, shared_memory_bytes=  8192
-      AddMM(32,  32,   4,   8,  16); // block_tile_n= 32, tile_k= 16, thread_tile_m=  4, thread_tile_n=  8, thread_count= 32, register_count_per_thread=120, total_register_count= 4080, shared_memory_bytes= 16384
-      AddMM(32,  32,   4,   8,  32); // block_tile_n= 32, tile_k= 32, thread_tile_m=  4, thread_tile_n=  8, thread_count= 32, register_count_per_thread=184, total_register_count= 6120, shared_memory_bytes= 32768
-      AddMM(32,  32,   8,   4,   8); // block_tile_n= 32, tile_k=  8, thread_tile_m=  8, thread_tile_n=  4, thread_count= 32, register_count_per_thread= 88, total_register_count= 3060, shared_memory_bytes=  8192
-      AddMM(32,  32,   8,   4,  16); // block_tile_n= 32, tile_k= 16, thread_tile_m=  8, thread_tile_n=  4, thread_count= 32, register_count_per_thread=120, total_register_count= 4080, shared_memory_bytes= 16384
-      AddMM(32,  32,   8,   4,  32); // block_tile_n= 32, tile_k= 32, thread_tile_m=  8, thread_tile_n=  4, thread_count= 32, register_count_per_thread=184, total_register_count= 6120, shared_memory_bytes= 32768
-      AddMM(32,  64,   4,   4,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m=  4, thread_tile_n=  4, thread_count=128, register_count_per_thread= 56, total_register_count= 7395, shared_memory_bytes= 24576
-      AddMM(32,  64,   4,   4,  32); // block_tile_n= 64, tile_k= 32, thread_tile_m=  4, thread_tile_n=  4, thread_count=128, register_count_per_thread= 80, total_register_count=10455, shared_memory_bytes= 49152
-      AddMM(32,  64,   4,   4,  64); // block_tile_n= 64, tile_k= 64, thread_tile_m=  4, thread_tile_n=  4, thread_count=128, register_count_per_thread=128, total_register_count=16575, shared_memory_bytes= 98304
-      AddMM(32,  64,   4,   8,   8); // block_tile_n= 64, tile_k=  8, thread_tile_m=  4, thread_tile_n=  8, thread_count= 64, register_count_per_thread= 80, total_register_count= 5355, shared_memory_bytes= 12288
-      AddMM(32,  64,   4,   8,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m=  4, thread_tile_n=  8, thread_count= 64, register_count_per_thread=104, total_register_count= 6885, shared_memory_bytes= 24576
-      AddMM(32,  64,   4,   8,  32); // block_tile_n= 64, tile_k= 32, thread_tile_m=  4, thread_tile_n=  8, thread_count= 64, register_count_per_thread=152, total_register_count= 9945, shared_memory_bytes= 49152
-      AddMM(32,  64,   4,  16,   8); // block_tile_n= 64, tile_k=  8, thread_tile_m=  4, thread_tile_n= 16, thread_count= 32, register_count_per_thread=152, total_register_count= 5100, shared_memory_bytes= 12288
-      AddMM(32,  64,   4,  16,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m=  4, thread_tile_n= 16, thread_count= 32, register_count_per_thread=200, total_register_count= 6630, shared_memory_bytes= 24576
-      AddMM(32,  64,   8,   4,   8); // block_tile_n= 64, tile_k=  8, thread_tile_m=  8, thread_tile_n=  4, thread_count= 64, register_count_per_thread= 80, total_register_count= 5355, shared_memory_bytes= 12288
-      AddMM(32,  64,   8,   4,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m=  8, thread_tile_n=  4, thread_count= 64, register_count_per_thread=104, total_register_count= 6885, shared_memory_bytes= 24576
-      AddMM(32,  64,   8,   4,  32); // block_tile_n= 64, tile_k= 32, thread_tile_m=  8, thread_tile_n=  4, thread_count= 64, register_count_per_thread=152, total_register_count= 9945, shared_memory_bytes= 49152
-      AddMM(32,  64,   8,   8,   8); // block_tile_n= 64, tile_k=  8, thread_tile_m=  8, thread_tile_n=  8, thread_count= 32, register_count_per_thread=144, total_register_count= 4845, shared_memory_bytes= 12288
-      AddMM(32,  64,   8,   8,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m=  8, thread_tile_n=  8, thread_count= 32, register_count_per_thread=192, total_register_count= 6375, shared_memory_bytes= 24576
-      AddMM(32,  64,  16,   4,   8); // block_tile_n= 64, tile_k=  8, thread_tile_m= 16, thread_tile_n=  4, thread_count= 32, register_count_per_thread=152, total_register_count= 5100, shared_memory_bytes= 12288
-      AddMM(32,  64,  16,   4,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m= 16, thread_tile_n=  4, thread_count= 32, register_count_per_thread=200, total_register_count= 6630, shared_memory_bytes= 24576
-      AddMM(32, 128,   4,   4,  32); // block_tile_n=128, tile_k= 32, thread_tile_m=  4, thread_tile_n=  4, thread_count=256, register_count_per_thread= 72, total_register_count=18615, shared_memory_bytes= 81920
-      AddMM(32, 128,   4,   8,  16); // block_tile_n=128, tile_k= 16, thread_tile_m=  4, thread_tile_n=  8, thread_count=128, register_count_per_thread= 96, total_register_count=12495, shared_memory_bytes= 40960
-      AddMM(32, 128,   4,   8,  32); // block_tile_n=128, tile_k= 32, thread_tile_m=  4, thread_tile_n=  8, thread_count=128, register_count_per_thread=136, total_register_count=17595, shared_memory_bytes= 81920
-      AddMM(32, 128,   4,  16,   8); // block_tile_n=128, tile_k=  8, thread_tile_m=  4, thread_tile_n= 16, thread_count= 64, register_count_per_thread=144, total_register_count= 9435, shared_memory_bytes= 20480
-      AddMM(32, 128,   4,  16,  16); // block_tile_n=128, tile_k= 16, thread_tile_m=  4, thread_tile_n= 16, thread_count= 64, register_count_per_thread=184, total_register_count=11985, shared_memory_bytes= 40960
-      AddMM(32, 128,   8,   4,  16); // block_tile_n=128, tile_k= 16, thread_tile_m=  8, thread_tile_n=  4, thread_count=128, register_count_per_thread= 96, total_register_count=12495, shared_memory_bytes= 40960
-      AddMM(32, 128,   8,   4,  32); // block_tile_n=128, tile_k= 32, thread_tile_m=  8, thread_tile_n=  4, thread_count=128, register_count_per_thread=136, total_register_count=17595, shared_memory_bytes= 81920
-      AddMM(32, 128,   8,   8,   8); // block_tile_n=128, tile_k=  8, thread_tile_m=  8, thread_tile_n=  8, thread_count= 64, register_count_per_thread=136, total_register_count= 8925, shared_memory_bytes= 20480
-      AddMM(32, 128,   8,   8,  16); // block_tile_n=128, tile_k= 16, thread_tile_m=  8, thread_tile_n=  8, thread_count= 64, register_count_per_thread=176, total_register_count=11475, shared_memory_bytes= 40960
-      AddMM(32, 128,  16,   4,   8); // block_tile_n=128, tile_k=  8, thread_tile_m= 16, thread_tile_n=  4, thread_count= 64, register_count_per_thread=144, total_register_count= 9435, shared_memory_bytes= 20480
-      AddMM(32, 128,  16,   4,  16); // block_tile_n=128, tile_k= 16, thread_tile_m= 16, thread_tile_n=  4, thread_count= 64, register_count_per_thread=184, total_register_count=11985, shared_memory_bytes= 40960
-      AddMM(32, 256,   4,  16,  16); // block_tile_n=256, tile_k= 16, thread_tile_m=  4, thread_tile_n= 16, thread_count=128, register_count_per_thread=176, total_register_count=22695, shared_memory_bytes= 73728
-      AddMM(32, 256,   8,   8,  16); // block_tile_n=256, tile_k= 16, thread_tile_m=  8, thread_tile_n=  8, thread_count=128, register_count_per_thread=168, total_register_count=21675, shared_memory_bytes= 73728
-      AddMM(32, 256,  16,   4,  16); // block_tile_n=256, tile_k= 16, thread_tile_m= 16, thread_tile_n=  4, thread_count=128, register_count_per_thread=176, total_register_count=22695, shared_memory_bytes= 73728
-      /* clang-format on */
-    }
-    else if constexpr (BLOCK_TILE_M == 64) {
-      /* clang-format off */
-      AddMM(64,   8,   4,   4,  16); // block_tile_n=  8, tile_k= 16, thread_tile_m=  4, thread_tile_n=  4, thread_count= 32, register_count_per_thread=104, total_register_count= 3570, shared_memory_bytes= 18432
-      AddMM(64,   8,   4,   4,  32); // block_tile_n=  8, tile_k= 32, thread_tile_m=  4, thread_tile_n=  4, thread_count= 32, register_count_per_thread=176, total_register_count= 5865, shared_memory_bytes= 36864
-      AddMM(64,  16,   4,   4,  16); // block_tile_n= 16, tile_k= 16, thread_tile_m=  4, thread_tile_n=  4, thread_count= 64, register_count_per_thread= 72, total_register_count= 4845, shared_memory_bytes= 20480
-      AddMM(64,  16,   4,   4,  32); // block_tile_n= 16, tile_k= 32, thread_tile_m=  4, thread_tile_n=  4, thread_count= 64, register_count_per_thread=112, total_register_count= 7395, shared_memory_bytes= 40960
-      AddMM(64,  16,   4,   4,  64); // block_tile_n= 16, tile_k= 64, thread_tile_m=  4, thread_tile_n=  4, thread_count= 64, register_count_per_thread=192, total_register_count=12495, shared_memory_bytes= 81920
-      AddMM(64,  16,   4,   8,   8); // block_tile_n= 16, tile_k=  8, thread_tile_m=  4, thread_tile_n=  8, thread_count= 32, register_count_per_thread= 96, total_register_count= 3315, shared_memory_bytes= 10240
-      AddMM(64,  16,   4,   8,  16); // block_tile_n= 16, tile_k= 16, thread_tile_m=  4, thread_tile_n=  8, thread_count= 32, register_count_per_thread=136, total_register_count= 4590, shared_memory_bytes= 20480
-      AddMM(64,  16,   4,   8,  32); // block_tile_n= 16, tile_k= 32, thread_tile_m=  4, thread_tile_n=  8, thread_count= 32, register_count_per_thread=216, total_register_count= 7140, shared_memory_bytes= 40960
-      AddMM(64,  16,   8,   4,   8); // block_tile_n= 16, tile_k=  8, thread_tile_m=  8, thread_tile_n=  4, thread_count= 32, register_count_per_thread= 96, total_register_count= 3315, shared_memory_bytes= 10240
-      AddMM(64,  16,   8,   4,  16); // block_tile_n= 16, tile_k= 16, thread_tile_m=  8, thread_tile_n=  4, thread_count= 32, register_count_per_thread=136, total_register_count= 4590, shared_memory_bytes= 20480
-      AddMM(64,  16,   8,   4,  32); // block_tile_n= 16, tile_k= 32, thread_tile_m=  8, thread_tile_n=  4, thread_count= 32, register_count_per_thread=216, total_register_count= 7140, shared_memory_bytes= 40960
-      AddMM(64,  32,   4,   4,  16); // block_tile_n= 32, tile_k= 16, thread_tile_m=  4, thread_tile_n=  4, thread_count=128, register_count_per_thread= 56, total_register_count= 7395, shared_memory_bytes= 24576
-      AddMM(64,  32,   4,   4,  32); // block_tile_n= 32, tile_k= 32, thread_tile_m=  4, thread_tile_n=  4, thread_count=128, register_count_per_thread= 80, total_register_count=10455, shared_memory_bytes= 49152
-      AddMM(64,  32,   4,   4,  64); // block_tile_n= 32, tile_k= 64, thread_tile_m=  4, thread_tile_n=  4, thread_count=128, register_count_per_thread=128, total_register_count=16575, shared_memory_bytes= 98304
-      AddMM(64,  32,   4,   8,   8); // block_tile_n= 32, tile_k=  8, thread_tile_m=  4, thread_tile_n=  8, thread_count= 64, register_count_per_thread= 80, total_register_count= 5355, shared_memory_bytes= 12288
-      AddMM(64,  32,   4,   8,  16); // block_tile_n= 32, tile_k= 16, thread_tile_m=  4, thread_tile_n=  8, thread_count= 64, register_count_per_thread=104, total_register_count= 6885, shared_memory_bytes= 24576
-      AddMM(64,  32,   4,   8,  32); // block_tile_n= 32, tile_k= 32, thread_tile_m=  4, thread_tile_n=  8, thread_count= 64, register_count_per_thread=152, total_register_count= 9945, shared_memory_bytes= 49152
-      AddMM(64,  32,   4,  16,   8); // block_tile_n= 32, tile_k=  8, thread_tile_m=  4, thread_tile_n= 16, thread_count= 32, register_count_per_thread=152, total_register_count= 5100, shared_memory_bytes= 12288
-      AddMM(64,  32,   4,  16,  16); // block_tile_n= 32, tile_k= 16, thread_tile_m=  4, thread_tile_n= 16, thread_count= 32, register_count_per_thread=200, total_register_count= 6630, shared_memory_bytes= 24576
-      AddMM(64,  32,   8,   4,   8); // block_tile_n= 32, tile_k=  8, thread_tile_m=  8, thread_tile_n=  4, thread_count= 64, register_count_per_thread= 80, total_register_count= 5355, shared_memory_bytes= 12288
-      AddMM(64,  32,   8,   4,  16); // block_tile_n= 32, tile_k= 16, thread_tile_m=  8, thread_tile_n=  4, thread_count= 64, register_count_per_thread=104, total_register_count= 6885, shared_memory_bytes= 24576
-      AddMM(64,  32,   8,   4,  32); // block_tile_n= 32, tile_k= 32, thread_tile_m=  8, thread_tile_n=  4, thread_count= 64, register_count_per_thread=152, total_register_count= 9945, shared_memory_bytes= 49152
-      AddMM(64,  32,   8,   8,   8); // block_tile_n= 32, tile_k=  8, thread_tile_m=  8, thread_tile_n=  8, thread_count= 32, register_count_per_thread=144, total_register_count= 4845, shared_memory_bytes= 12288
-      AddMM(64,  32,   8,   8,  16); // block_tile_n= 32, tile_k= 16, thread_tile_m=  8, thread_tile_n=  8, thread_count= 32, register_count_per_thread=192, total_register_count= 6375, shared_memory_bytes= 24576
-      AddMM(64,  32,  16,   4,   8); // block_tile_n= 32, tile_k=  8, thread_tile_m= 16, thread_tile_n=  4, thread_count= 32, register_count_per_thread=152, total_register_count= 5100, shared_memory_bytes= 12288
-      AddMM(64,  32,  16,   4,  16); // block_tile_n= 32, tile_k= 16, thread_tile_m= 16, thread_tile_n=  4, thread_count= 32, register_count_per_thread=200, total_register_count= 6630, shared_memory_bytes= 24576
-      AddMM(64,  64,   4,   4,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m=  4, thread_tile_n=  4, thread_count=256, register_count_per_thread= 48, total_register_count=12495, shared_memory_bytes= 32768
-      AddMM(64,  64,   4,   4,  32); // block_tile_n= 64, tile_k= 32, thread_tile_m=  4, thread_tile_n=  4, thread_count=256, register_count_per_thread= 64, total_register_count=16575, shared_memory_bytes= 65536
-      AddMM(64,  64,   4,   8,   8); // block_tile_n= 64, tile_k=  8, thread_tile_m=  4, thread_tile_n=  8, thread_count=128, register_count_per_thread= 72, total_register_count= 9435, shared_memory_bytes= 16384
-      AddMM(64,  64,   4,   8,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m=  4, thread_tile_n=  8, thread_count=128, register_count_per_thread= 88, total_register_count=11475, shared_memory_bytes= 32768
-      AddMM(64,  64,   4,   8,  32); // block_tile_n= 64, tile_k= 32, thread_tile_m=  4, thread_tile_n=  8, thread_count=128, register_count_per_thread=120, total_register_count=15555, shared_memory_bytes= 65536
-      AddMM(64,  64,   4,  16,   8); // block_tile_n= 64, tile_k=  8, thread_tile_m=  4, thread_tile_n= 16, thread_count= 64, register_count_per_thread=136, total_register_count= 8925, shared_memory_bytes= 16384
-      AddMM(64,  64,   4,  16,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m=  4, thread_tile_n= 16, thread_count= 64, register_count_per_thread=168, total_register_count=10965, shared_memory_bytes= 32768
-      AddMM(64,  64,   8,   4,   8); // block_tile_n= 64, tile_k=  8, thread_tile_m=  8, thread_tile_n=  4, thread_count=128, register_count_per_thread= 72, total_register_count= 9435, shared_memory_bytes= 16384
-      AddMM(64,  64,   8,   4,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m=  8, thread_tile_n=  4, thread_count=128, register_count_per_thread= 88, total_register_count=11475, shared_memory_bytes= 32768
-      AddMM(64,  64,   8,   4,  32); // block_tile_n= 64, tile_k= 32, thread_tile_m=  8, thread_tile_n=  4, thread_count=128, register_count_per_thread=120, total_register_count=15555, shared_memory_bytes= 65536
-      AddMM(64,  64,   8,   8,   8); // block_tile_n= 64, tile_k=  8, thread_tile_m=  8, thread_tile_n=  8, thread_count= 64, register_count_per_thread=128, total_register_count= 8415, shared_memory_bytes= 16384
-      AddMM(64,  64,   8,   8,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m=  8, thread_tile_n=  8, thread_count= 64, register_count_per_thread=160, total_register_count=10455, shared_memory_bytes= 32768
-      AddMM(64,  64,   8,   8,  32); // block_tile_n= 64, tile_k= 32, thread_tile_m=  8, thread_tile_n=  8, thread_count= 64, register_count_per_thread=224, total_register_count=14535, shared_memory_bytes= 65536
-      AddMM(64,  64,  16,   4,   8); // block_tile_n= 64, tile_k=  8, thread_tile_m= 16, thread_tile_n=  4, thread_count= 64, register_count_per_thread=136, total_register_count= 8925, shared_memory_bytes= 16384
-      AddMM(64,  64,  16,   4,  16); // block_tile_n= 64, tile_k= 16, thread_tile_m= 16, thread_tile_n=  4, thread_count= 64, register_count_per_thread=168, total_register_count=10965, shared_memory_bytes= 32768
-      AddMM(64, 128,   4,   8,  16); // block_tile_n=128, tile_k= 16, thread_tile_m=  4, thread_tile_n=  8, thread_count=256, register_count_per_thread= 80, total_register_count=20655, shared_memory_bytes= 49152
-      AddMM(64, 128,   4,   8,  32); // block_tile_n=128, tile_k= 32, thread_tile_m=  4, thread_tile_n=  8, thread_count=256, register_count_per_thread=104, total_register_count=26775, shared_memory_bytes= 98304
-      AddMM(64, 128,   4,  16,   8); // block_tile_n=128, tile_k=  8, thread_tile_m=  4, thread_tile_n= 16, thread_count=128, register_count_per_thread=128, total_register_count=16575, shared_memory_bytes= 24576
-      AddMM(64, 128,   4,  16,  16); // block_tile_n=128, tile_k= 16, thread_tile_m=  4, thread_tile_n= 16, thread_count=128, register_count_per_thread=152, total_register_count=19635, shared_memory_bytes= 49152
-      AddMM(64, 128,   4,  16,  32); // block_tile_n=128, tile_k= 32, thread_tile_m=  4, thread_tile_n= 16, thread_count=128, register_count_per_thread=200, total_register_count=25755, shared_memory_bytes= 98304
-      AddMM(64, 128,   8,   4,  16); // block_tile_n=128, tile_k= 16, thread_tile_m=  8, thread_tile_n=  4, thread_count=256, register_count_per_thread= 80, total_register_count=20655, shared_memory_bytes= 49152
-      AddMM(64, 128,   8,   4,  32); // block_tile_n=128, tile_k= 32, thread_tile_m=  8, thread_tile_n=  4, thread_count=256, register_count_per_thread=104, total_register_count=26775, shared_memory_bytes= 98304
-      AddMM(64, 128,   8,   8,   8); // block_tile_n=128, tile_k=  8, thread_tile_m=  8, thread_tile_n=  8, thread_count=128, register_count_per_thread=120, total_register_count=15555, shared_memory_bytes= 24576
-      AddMM(64, 128,   8,   8,  16); // block_tile_n=128, tile_k= 16, thread_tile_m=  8, thread_tile_n=  8, thread_count=128, register_count_per_thread=144, total_register_count=18615, shared_memory_bytes= 49152
-      AddMM(64, 128,   8,   8,  32); // block_tile_n=128, tile_k= 32, thread_tile_m=  8, thread_tile_n=  8, thread_count=128, register_count_per_thread=192, total_register_count=24735, shared_memory_bytes= 98304
-      AddMM(64, 128,   8,  16,   8); // block_tile_n=128, tile_k=  8, thread_tile_m=  8, thread_tile_n= 16, thread_count= 64, register_count_per_thread=224, total_register_count=14535, shared_memory_bytes= 24576
-      AddMM(64, 128,  16,   4,   8); // block_tile_n=128, tile_k=  8, thread_tile_m= 16, thread_tile_n=  4, thread_count=128, register_count_per_thread=128, total_register_count=16575, shared_memory_bytes= 24576
-      AddMM(64, 128,  16,   4,  16); // block_tile_n=128, tile_k= 16, thread_tile_m= 16, thread_tile_n=  4, thread_count=128, register_count_per_thread=152, total_register_count=19635, shared_memory_bytes= 49152
-      AddMM(64, 128,  16,   4,  32); // block_tile_n=128, tile_k= 32, thread_tile_m= 16, thread_tile_n=  4, thread_count=128, register_count_per_thread=200, total_register_count=25755, shared_memory_bytes= 98304
-      AddMM(64, 128,  16,   8,   8); // block_tile_n=128, tile_k=  8, thread_tile_m= 16, thread_tile_n=  8, thread_count= 64, register_count_per_thread=224, total_register_count=14535, shared_memory_bytes= 24576
-      AddMM(64, 256,   4,  16,  16); // block_tile_n=256, tile_k= 16, thread_tile_m=  4, thread_tile_n= 16, thread_count=256, register_count_per_thread=144, total_register_count=36975, shared_memory_bytes= 81920
-      AddMM(64, 256,   8,   8,  16); // block_tile_n=256, tile_k= 16, thread_tile_m=  8, thread_tile_n=  8, thread_count=256, register_count_per_thread=136, total_register_count=34935, shared_memory_bytes= 81920
-      AddMM(64, 256,   8,  16,   8); // block_tile_n=256, tile_k=  8, thread_tile_m=  8, thread_tile_n= 16, thread_count=128, register_count_per_thread=216, total_register_count=27795, shared_memory_bytes= 40960
-      AddMM(64, 256,  16,   4,  16); // block_tile_n=256, tile_k= 16, thread_tile_m= 16, thread_tile_n=  4, thread_count=256, register_count_per_thread=144, total_register_count=36975, shared_memory_bytes= 81920
-      AddMM(64, 256,  16,   8,   8); // block_tile_n=256, tile_k=  8, thread_tile_m= 16, thread_tile_n=  8, thread_count=128, register_count_per_thread=216, total_register_count=27795, shared_memory_bytes= 40960
-      /* clang-format on */
-    }
-    else if constexpr (BLOCK_TILE_M == 128) {
-      /* clang-format off */
-      AddMM(128, 128,   4,  16,   8); // block_tile_n=128, tile_k=  8, thread_tile_m=  4, thread_tile_n= 16, thread_count=256, register_count_per_thread=120, total_register_count=30855, shared_memory_bytes= 32768
-      AddMM(128, 128,   4,  16,  16); // block_tile_n=128, tile_k= 16, thread_tile_m=  4, thread_tile_n= 16, thread_count=256, register_count_per_thread=136, total_register_count=34935, shared_memory_bytes= 65536
-      AddMM(128, 128,   8,   8,   8); // block_tile_n=128, tile_k=  8, thread_tile_m=  8, thread_tile_n=  8, thread_count=256, register_count_per_thread=112, total_register_count=28815, shared_memory_bytes= 32768
-      AddMM(128, 128,   8,   8,  16); // block_tile_n=128, tile_k= 16, thread_tile_m=  8, thread_tile_n=  8, thread_count=256, register_count_per_thread=128, total_register_count=32895, shared_memory_bytes= 65536
-      AddMM(128, 128,   8,  16,   8); // block_tile_n=128, tile_k=  8, thread_tile_m=  8, thread_tile_n= 16, thread_count=128, register_count_per_thread=208, total_register_count=26775, shared_memory_bytes= 32768
-      AddMM(128, 128,  16,   4,   8); // block_tile_n=128, tile_k=  8, thread_tile_m= 16, thread_tile_n=  4, thread_count=256, register_count_per_thread=120, total_register_count=30855, shared_memory_bytes= 32768
-      AddMM(128, 128,  16,   4,  16); // block_tile_n=128, tile_k= 16, thread_tile_m= 16, thread_tile_n=  4, thread_count=256, register_count_per_thread=136, total_register_count=34935, shared_memory_bytes= 65536
-      AddMM(128, 128,  16,   8,   8); // block_tile_n=128, tile_k=  8, thread_tile_m= 16, thread_tile_n=  8, thread_count=128, register_count_per_thread=208, total_register_count=26775, shared_memory_bytes= 32768
-      AddMM(128, 256,   4,  32,   8); // block_tile_n=256, tile_k=  8, thread_tile_m=  4, thread_tile_n= 32, thread_count=256, register_count_per_thread=224, total_register_count=57375, shared_memory_bytes= 49152
-      AddMM(128, 256,   8,  16,   8); // block_tile_n=256, tile_k=  8, thread_tile_m=  8, thread_tile_n= 16, thread_count=256, register_count_per_thread=200, total_register_count=51255, shared_memory_bytes= 49152
-      AddMM(128, 256,   8,  16,  16); // block_tile_n=256, tile_k= 16, thread_tile_m=  8, thread_tile_n= 16, thread_count=256, register_count_per_thread=224, total_register_count=57375, shared_memory_bytes= 98304
-      AddMM(128, 256,  16,   8,   8); // block_tile_n=256, tile_k=  8, thread_tile_m= 16, thread_tile_n=  8, thread_count=256, register_count_per_thread=200, total_register_count=51255, shared_memory_bytes= 49152
-      AddMM(128, 256,  16,   8,  16); // block_tile_n=256, tile_k= 16, thread_tile_m= 16, thread_tile_n=  8, thread_count=256, register_count_per_thread=224, total_register_count=57375, shared_memory_bytes= 98304
-      AddMM(128, 256,  32,   4,   8); // block_tile_n=256, tile_k=  8, thread_tile_m= 32, thread_tile_n=  4, thread_count=256, register_count_per_thread=224, total_register_count=57375, shared_memory_bytes= 49152
-      /* clang-format on */
-    }
-    else {
-      static_assert(16 <= BLOCK_TILE_M && BLOCK_TILE_M <= 128 && (BLOCK_TILE_M & (BLOCK_TILE_M - 1)) == 0);
-    }
+
+#define AddMM(block_tile_m,                                                                                            \
+              block_tile_n,                                                                                            \
+              thread_tile_m,                                                                                           \
+              thread_tile_n,                                                                                           \
+              tile_k,                                                                                                  \
+              split_k_tiles,                                                                                           \
+              reduce_block_tile,                                                                                       \
+              reduce_thread_tile)                                                                                      \
+  {                                                                                                                    \
+    AddMMWithAlignedParam(block_tile_m,                                                                                \
+                          block_tile_n,                                                                                \
+                          thread_tile_m,                                                                               \
+                          thread_tile_n,                                                                               \
+                          tile_k,                                                                                      \
+                          false,                                                                                       \
+                          split_k_tiles,                                                                               \
+                          reduce_block_tile,                                                                           \
+                          reduce_thread_tile,                                                                          \
+                          false);                                                                                      \
+    AddMMWithAlignedParam(block_tile_m,                                                                                \
+                          block_tile_n,                                                                                \
+                          thread_tile_m,                                                                               \
+                          thread_tile_n,                                                                               \
+                          tile_k,                                                                                      \
+                          true,                                                                                        \
+                          split_k_tiles,                                                                               \
+                          reduce_block_tile,                                                                           \
+                          reduce_thread_tile,                                                                          \
+                          true);                                                                                       \
+    AddMMWithAlignedParam(block_tile_m,                                                                                \
+                          block_tile_n,                                                                                \
+                          thread_tile_m,                                                                               \
+                          thread_tile_n,                                                                               \
+                          tile_k,                                                                                      \
+                          false,                                                                                       \
+                          split_k_tiles,                                                                               \
+                          reduce_block_tile,                                                                           \
+                          reduce_thread_tile,                                                                          \
+                          true);                                                                                       \
+    AddMMWithAlignedParam(block_tile_m,                                                                                \
+                          block_tile_n,                                                                                \
+                          thread_tile_m,                                                                               \
+                          thread_tile_n,                                                                               \
+                          tile_k,                                                                                      \
+                          true,                                                                                        \
+                          split_k_tiles,                                                                               \
+                          reduce_block_tile,                                                                           \
+                          reduce_thread_tile,                                                                          \
+                          false);                                                                                      \
+  }
+
+#include "llmmm/mm_config.h"
+
 #undef AddMM
+#undef AddMMWithAlignedParam
   }
 
   template<int BLOCK_TILE_M>

@@ -8,14 +8,14 @@
 
 int main()
 {
-  static const int M = 4096, N = 4096, K = 4096;
+  static const int M = 8192, N = 4096, K = 4096;
 
   std::vector<float>                    host_A(M * K), host_B(K * N), host_C(M * N), host_result(M * N);
   std::random_device                    rd;
   std::mt19937                          gen(rd());
   std::uniform_real_distribution<float> dis(-5, 5);
   for (auto& vec : {&host_A, &host_B}) {
-#if 1
+#if 0
     for (auto& data : *vec) {
       data = dis(gen);
     }
@@ -57,9 +57,9 @@ int main()
     CHECK_CUDA_ERROR();
   }
 
-  for (int m = 1; m <= 256; ++m) {
-    for (int n = 128; n <= 1024; n += 128) {
-      for (int k = 128; k <= 1024; k += 128) {
+  for (int m = 1; m <= M; ++m) {
+    for (int n = 128; n <= 4096; n += 128) {
+      for (int k = 128; k <= 4096; k += 128) {
         {
           cudaMemset(C, 0, m * n * sizeof(float));
           launch_kahan(A, B, C, m, n, k);

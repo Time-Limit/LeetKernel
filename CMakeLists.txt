@@ -23,3 +23,4 @@ message("CUDA_INCLUDE_DIRS: ${CUDA_INCLUDE_DIRS}")
 
 add_subdirectory(llmmm)
 add_subdirectory(test)
+add_subdirectory(examples)
