@@ -56,8 +56,8 @@ for block_tile_m in [16, 32, 64, 128]:
                                 if total_register_count > 65535:
                                     print(f"{block_tile_m=:3d}, {block_tile_n=:3d}, {tile_k=:3d}, {thread_tile_m=:3d}, {thread_tile_n=:3d}, point 11");
                                     continue
-                                if block_tile_m == 128 and split_k != 1:
-                                    continue
+                                # if block_tile_m == 128 and split_k != 1:
+                                #     continue
                                 if split_k == 1 and (reduce_block_tile != 1 or reduce_thread_tile != 1):
                                     continue
                                 if split_k != 1 and (reduce_block_tile == 1 or reduce_thread_tile == 1):

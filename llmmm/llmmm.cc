@@ -14,7 +14,7 @@ void LLMMM::tune(const int N, const int K)
   CHECK_CUDA_RETURN(cudaMalloc(&A, sizeof(float) * MAX_M * K));
   CHECK_CUDA_RETURN(cudaMalloc(&B, sizeof(float) * K * N));
   CHECK_CUDA_RETURN(cudaMalloc(&C, sizeof(float) * MAX_M * N));
-  for (uint32_t M = 1; M < 16 && M <= MAX_M; M += (M < 128 ? 1 : 32)) {
+  for (uint32_t M = 1; M <= MAX_M; M += (M < 128 ? 1 : 32)) {
     MMConfig opt_config;
     double   opt_microseconds = std::numeric_limits<float>::max();
     for (const auto& [config, mm] : mm_list) {

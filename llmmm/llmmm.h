@@ -113,7 +113,7 @@ class LLMMM {
 
   std::unique_ptr<float, SplitKWorkspaceDeleter> split_k_workspace;
   size_t                 split_k_workspace_bytes = 0;
-  static constexpr int   MAX_M_SUPPOR_SPLIT_K    = 64;
+  static constexpr int   MAX_M_SUPPOR_SPLIT_K    = 128;
   static constexpr int   MIN_SPLIT_K_TILES       = 2;
   static constexpr int   MAX_SPLIT_K_TILES       = 32;
 
