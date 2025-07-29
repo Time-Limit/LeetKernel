@@ -23,7 +23,7 @@
     }                                                                                                                  \
   } while (0)
 
-#define CHECK_CUDA_RETURN(command)                                                                                          \
+#define CHECK_CUDA_RETURN(command)                                                                                     \
   do {                                                                                                                 \
     auto err = command;                                                                                                \
     if (err != cudaSuccess) {                                                                                          \
@@ -32,7 +32,7 @@
     }                                                                                                                  \
   } while (0)
 
-#define CHECK_CUDA_RETURN_WITH_INFO(command, prefix)                                                                        \
+#define CHECK_CUDA_RETURN_WITH_INFO(command, prefix)                                                                   \
   do {                                                                                                                 \
     auto err = command;                                                                                                \
     if (err != cudaSuccess) {                                                                                          \

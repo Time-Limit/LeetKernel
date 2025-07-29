@@ -13,8 +13,6 @@
 #include "util/error.h"
 #include "util/util.cuh"
 
-// The version that uses a float type accumulator and applies Kahan's algorithm
-// to reduce precision loss.
 __global__ void naive_mm(const float* A, const float* B, float* C, int M, int N, int K)
 {
   int n = blockIdx.x * blockDim.x + threadIdx.x;
