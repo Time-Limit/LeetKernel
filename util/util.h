@@ -28,4 +28,3 @@ template <int BLOCK_TILE_M, int BLOCK_TILE_N, int THREAD_TILE_M,
 constexpr int host_thread_count_calculator() {
   thread_count_calculator();
 }
-
