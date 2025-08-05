@@ -45,7 +45,7 @@ void launch_fp32_naive_mm(const float* A, const float* B, float* C, int M, int N
 }
 
 template<typename T, int BLOCK_TILE_M, int BLOCK_TILE_N, int WARP_TILE_M, int WARP_TILE_N>
-__global__ void fp16_mma_m8n8k16_ldmatrix(const T* A, const T* B, const T* C, int M, int N, int K)
+__global__ void fp16_mma_m16n8k16_ldmatrix(const T* A, const T* B, const T* C, int M, int N, int K)
 {
   constexpr int WARP_COUNT   = BLOCK_TILE_M / WARP_TILE_M * BLOCK_TILE_N / WARP_TILE_N;
   constexpr int THREAD_COUNT = WARP_COUNT * 32;
@@ -229,7 +229,7 @@ __global__ void fp16_mma_m8n8k16_ldmatrix(const T* A, const T* B, const T* C, in
 }
 
 template<typename T, int BLOCK_TILE_M, int BLOCK_TILE_N, int WARP_TILE_M, int WARP_TILE_N>
-__global__ void fp16_mma_m8n8k16_ldmatrix_trans(const T* A, const T* B, const T* C, int M, int N, int K)
+__global__ void fp16_mma_m16n8k16_ldmatrix_trans(const T* A, const T* B, const T* C, int M, int N, int K)
 {
   constexpr int WARP_COUNT   = BLOCK_TILE_M / WARP_TILE_M * BLOCK_TILE_N / WARP_TILE_N;
   constexpr int THREAD_COUNT = WARP_COUNT * 32;
@@ -377,7 +377,7 @@ __global__ void fp16_mma_m8n8k16_ldmatrix_trans(const T* A, const T* B, const T*
 }
 
 template<typename T, int BLOCK_TILE_M, int BLOCK_TILE_N, int WARP_TILE_M, int WARP_TILE_N>
-__global__ void fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm(const T* A, const T* B, const T* C, int M, int N, int K)
+__global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm(const T* A, const T* B, const T* C, int M, int N, int K)
 {
   constexpr int WARP_COUNT   = BLOCK_TILE_M / WARP_TILE_M * BLOCK_TILE_N / WARP_TILE_N;
   constexpr int THREAD_COUNT = WARP_COUNT * 32;
@@ -402,7 +402,7 @@ __global__ void fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm(const T* A,
   // T14 T30
   // T15 T31
   // clang-format on
-  T A_ldg_reg[A_LDG_LOOP_COUNT][8];
+  float A_ldg_reg[A_LDG_LOOP_COUNT][4];
 
   static_assert(BLOCK_TILE_N * LOOP_TILE_K % THREAD_COUNT == 0);
   static_assert(BLOCK_TILE_N * LOOP_TILE_K / THREAD_COUNT % 8 == 0);
@@ -418,7 +418,7 @@ __global__ void fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm(const T* A,
   // T14 T30
   // T15 T31
   // clang-format on
-  T B_ldg_reg[B_LDG_LOOP_COUNT][8];
+  float B_ldg_reg[B_LDG_LOOP_COUNT][4];
 
   const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
   const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
@@ -562,7 +562,7 @@ __global__ void fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm(const T* A,
 }
 
 template<typename T, int BLOCK_TILE_M, int BLOCK_TILE_N, int WARP_TILE_M, int WARP_TILE_N>
-__global__ void fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(
+__global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(
   const T* A, const T* B, const T* C, int M, int N, int K)
 {
   constexpr int WARP_COUNT   = BLOCK_TILE_M / WARP_TILE_M * BLOCK_TILE_N / WARP_TILE_N;
@@ -591,7 +591,7 @@ __global__ void fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buf
   // T14 T30
   // T15 T31
   // clang-format on
-  T A_ldg_reg[LDG_REG_BUFFER_SIZE][A_LDG_LOOP_COUNT][8];
+  float A_ldg_reg[LDG_REG_BUFFER_SIZE][A_LDG_LOOP_COUNT][4];
 
   static_assert(BLOCK_TILE_N * LOOP_TILE_K % THREAD_COUNT == 0);
   static_assert(BLOCK_TILE_N * LOOP_TILE_K / THREAD_COUNT % 8 == 0);
@@ -607,7 +607,7 @@ __global__ void fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buf
   // T14 T30
   // T15 T31
   // clang-format on
-  T B_ldg_reg[LDG_REG_BUFFER_SIZE][B_LDG_LOOP_COUNT][8];
+  float B_ldg_reg[LDG_REG_BUFFER_SIZE][B_LDG_LOOP_COUNT][4];
 
   const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
   const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
@@ -784,7 +784,7 @@ __global__ void fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buf
 }
 
 template<typename T, int BLOCK_TILE_M, int BLOCK_TILE_N, int WARP_TILE_M, int WARP_TILE_N>
-__global__ void fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__opt(
+__global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__opt(
   const T* A, const T* B, const T* C, int M, int N, int K)
 {
   constexpr int WARP_COUNT   = BLOCK_TILE_M / WARP_TILE_M * BLOCK_TILE_N / WARP_TILE_N;
@@ -813,7 +813,7 @@ __global__ void fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buf
   // T14 T30
   // T15 T31
   // clang-format on
-  T A_ldg_reg[LDG_REG_BUFFER_SIZE][A_LDG_LOOP_COUNT][8];
+  float A_ldg_reg[LDG_REG_BUFFER_SIZE][A_LDG_LOOP_COUNT][4];
 
   static_assert(BLOCK_TILE_N * LOOP_TILE_K % THREAD_COUNT == 0);
   static_assert(BLOCK_TILE_N * LOOP_TILE_K / THREAD_COUNT % 8 == 0);
@@ -829,7 +829,7 @@ __global__ void fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buf
   // T14 T30
   // T15 T31
   // clang-format on
-  T B_ldg_reg[LDG_REG_BUFFER_SIZE][B_LDG_LOOP_COUNT][8];
+  float B_ldg_reg[LDG_REG_BUFFER_SIZE][B_LDG_LOOP_COUNT][4];
 
   const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
   const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
@@ -1137,11 +1137,11 @@ __global__ void fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buf
   }
 
 /* clang-format off */
-define_check_function(fp16_mma_m8n8k16_ldmatrix);
-define_check_function(fp16_mma_m8n8k16_ldmatrix_trans);
-define_check_function(fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm);
-define_check_function(fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer);
-define_check_function(fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__opt);
+define_check_function(fp16_mma_m16n8k16_ldmatrix);
+define_check_function(fp16_mma_m16n8k16_ldmatrix_trans);
+define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm);
+define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer);
+define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__opt);
 /* clang-format on */
 
 template<typename T, typename = std::enable_if_t<std::is_same<T, half>::value || std::is_same<T, __nv_bfloat16>::value>>
@@ -1173,11 +1173,11 @@ int test(const std::vector<float>& host_A,
   }
 
   /* clang-format off */
-  fp16_mma_m8n8k16_ldmatrix___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m8n8k16_ldmatrix_trans___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__opt___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  fp16_mma_m16n8k16_ldmatrix___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  fp16_mma_m16n8k16_ldmatrix_trans___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__opt___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
   /* clang-format on */
 
   CHECK_CUDA_RETURN(cudaFree(fp16_A));
