@@ -253,7 +253,7 @@ __global__ void fp16_mma_m8n8k16_ldmatrix_trans(const T* A, const T* B, const T*
   // T14 T30
   // T15 T31
   // clang-format on
-  T A_ldg_reg[A_LDG_LOOP_COUNT][8];
+  float A_ldg_reg[A_LDG_LOOP_COUNT][4];
 
   static_assert(BLOCK_TILE_N * LOOP_TILE_K % THREAD_COUNT == 0);
   static_assert(BLOCK_TILE_N * LOOP_TILE_K / THREAD_COUNT % 8 == 0);
@@ -269,7 +269,7 @@ __global__ void fp16_mma_m8n8k16_ldmatrix_trans(const T* A, const T* B, const T*
   // T14 T30
   // T15 T31
   // clang-format on
-  T B_ldg_reg[B_LDG_LOOP_COUNT][8];
+  float B_ldg_reg[B_LDG_LOOP_COUNT][4];
 
   const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
   const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
