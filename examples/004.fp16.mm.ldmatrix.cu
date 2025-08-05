@@ -918,31 +918,84 @@ __global__ void fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buf
     sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, ng);
   }
 
-  while (k_loop_offset < K) {
+  global_2_ldg_reg(k_loop_offset, LDG_REG_BUFFER_INDEX_0);
+  global_2_ldg_reg(k_loop_offset + LOOP_TILE_K, LDG_REG_BUFFER_INDEX_1);
+
+  while (k_loop_offset + LOOP_TILE_K * 2 < K) {
+    static_assert(M_GROUP_COUNT_PER_WARP == N_GROUP_COUNT_PER_WARP);
+    for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
+      for (int ng = 0; ng < M_GROUP_COUNT_PER_WARP; ++ng) {
+        mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                             B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                             A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                             C_mma_reg[mg][ng]);
+      }
+      sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, mg);
+      sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, mg);
+    }
+    for (int ng = M_GROUP_COUNT_PER_WARP; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
+      for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
+        mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                             B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                             A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                             C_mma_reg[mg][ng]);
+      }
+      sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, ng);
+      sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, ng);
+    }
+
+    LDG_SM_BUFFER_INDEX ^= 2;
+    k_loop_offset += LOOP_TILE_K * 2;
+    ldg_reg_2_sm(LDG_SM_BUFFER_INDEX, LDG_REG_BUFFER_INDEX_0);
     global_2_ldg_reg(k_loop_offset, LDG_REG_BUFFER_INDEX_0);
+    ldg_reg_2_sm(LDG_SM_BUFFER_INDEX + 1, LDG_REG_BUFFER_INDEX_1);
     global_2_ldg_reg(k_loop_offset + LOOP_TILE_K, LDG_REG_BUFFER_INDEX_1);
 
-    if constexpr (M_GROUP_COUNT_PER_WARP <= N_GROUP_COUNT_PER_WARP) {
+    __syncthreads();
+
+    static_assert(M_GROUP_COUNT_PER_WARP == N_GROUP_COUNT_PER_WARP);
+    for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
+      for (int ng = 0; ng < M_GROUP_COUNT_PER_WARP; ++ng) {
+        mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                             B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                             A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                             C_mma_reg[mg][ng]);
+      }
+      sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, mg);
+      sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, mg);
+    }
+    for (int ng = M_GROUP_COUNT_PER_WARP; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
       for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
-        for (int ng = 0; ng < M_GROUP_COUNT_PER_WARP; ++ng) {
-          mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                               B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
-                               A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
-                               C_mma_reg[mg][ng]);
-        }
-        sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, mg);
-        sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, mg);
+        mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                             B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                             A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                             C_mma_reg[mg][ng]);
       }
-      for (int ng = M_GROUP_COUNT_PER_WARP; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
-        for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
-          mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                               B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
-                               A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
-                               C_mma_reg[mg][ng]);
-        }
-        sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, ng);
-        sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, ng);
+      sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, ng);
+      sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, ng);
+    }
+  }
+  {
+    static_assert(M_GROUP_COUNT_PER_WARP == N_GROUP_COUNT_PER_WARP);
+    for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
+      for (int ng = 0; ng < M_GROUP_COUNT_PER_WARP; ++ng) {
+        mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                             B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                             A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                             C_mma_reg[mg][ng]);
       }
+      sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, mg);
+      sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, mg);
+    }
+    for (int ng = M_GROUP_COUNT_PER_WARP; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
+      for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
+        mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                             B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                             A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                             C_mma_reg[mg][ng]);
+      }
+      sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, ng);
+      sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, ng);
     }
 
     LDG_SM_BUFFER_INDEX ^= 2;
@@ -952,27 +1005,26 @@ __global__ void fp16_mma_m8n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buf
 
     __syncthreads();
 
-    if constexpr (M_GROUP_COUNT_PER_WARP <= N_GROUP_COUNT_PER_WARP) {
+    static_assert(M_GROUP_COUNT_PER_WARP == N_GROUP_COUNT_PER_WARP);
+    for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
+      for (int ng = 0; ng < M_GROUP_COUNT_PER_WARP; ++ng) {
+        mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                             B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                             A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                             C_mma_reg[mg][ng]);
+      }
+      sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, mg);
+      sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, mg);
+    }
+    for (int ng = M_GROUP_COUNT_PER_WARP; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
       for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
-        for (int ng = 0; ng < M_GROUP_COUNT_PER_WARP; ++ng) {
-          mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                               B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
-                               A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
-                               C_mma_reg[mg][ng]);
-        }
-        sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, mg);
-        sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, mg);
+        mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                             B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                             A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                             C_mma_reg[mg][ng]);
       }
-      for (int ng = M_GROUP_COUNT_PER_WARP; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
-        for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
-          mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                               B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
-                               A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
-                               C_mma_reg[mg][ng]);
-        }
-        sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, ng);
-        sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, ng);
-      }
+      sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, ng);
+      sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, ng);
     }
   }
   {
