@@ -1377,9 +1377,9 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
     }                                                                                                                  \
   }
 
-#define sm_2_A_mma_reg(ldg_sm_buffer_index, mma_reg_buffer_index)                                                      \
+#define sm_2_A_mma_reg(ldg_sm_buffer_index, mma_reg_buffer_index, group)                                               \
   if constexpr (M_GROUP_COUNT_PER_WARP == 1) {                                                                         \
-    for (int group = 0; group < M_GROUP_COUNT_PER_WARP; ++group) {                                                     \
+    /* for (int group = 0; group < M_GROUP_COUNT_PER_WARP; ++group) */ {                                               \
       uint32_t src =                                                                                                   \
         __cvta_generic_to_shared(A_sm_ptr_for_mma[group] + (ldg_sm_buffer_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3); \
       asm volatile("ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];"                                          \
@@ -1389,7 +1389,7 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
     }                                                                                                                  \
   }                                                                                                                    \
   else if constexpr (M_GROUP_COUNT_PER_WARP % 2 == 0) {                                                                \
-    for (int group = 0; group < M_GROUP_COUNT_PER_WARP; group += 2) {                                                  \
+    /*for (int group = 0; group < M_GROUP_COUNT_PER_WARP; group += 2) */ {                                             \
       uint32_t src =                                                                                                   \
         __cvta_generic_to_shared(A_sm_ptr_for_mma[group] + (ldg_sm_buffer_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3); \
       asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];"                                  \
@@ -1404,8 +1404,8 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
     static_assert(M_GROUP_COUNT_PER_WARP == 1 || M_GROUP_COUNT_PER_WARP % 2 == 0);                                     \
   }
 
-#define sm_2_B_mma_reg(ldg_sm_buffer_index, mma_reg_buffer_index)                                                      \
-  for (int group = 0; group < N_GROUP_COUNT_PER_WARP; ++group) {                                                       \
+#define sm_2_B_mma_reg(ldg_sm_buffer_index, mma_reg_buffer_index, group)                                               \
+  /* for (int group = 0; group < N_GROUP_COUNT_PER_WARP; ++group) */ {                                                 \
     uint32_t src =                                                                                                     \
       __cvta_generic_to_shared(B_sm_ptr_for_mma[group] + (ldg_sm_buffer_index) * B_sm_dim1 * B_sm_dim2 * B_sm_dim3);   \
     asm volatile("ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0, %1, %2, %3}, [%4];"                              \
@@ -1425,23 +1425,163 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
   int LDG_SM_BUFFER_INDEX = 0;
   int k_loop_offset       = LOOP_TILE_K * 2;
 
-  sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0);
-  sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0);
+  sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0);
+  sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 2);
+
+  sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0);
+  sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 1);
+  sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 2);
+  sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 3);
 
   global_2_ldg_reg(k_loop_offset, LDG_REG_BUFFER_INDEX_0);
   global_2_ldg_reg(k_loop_offset + LOOP_TILE_K, LDG_REG_BUFFER_INDEX_1);
 
   while (k_loop_offset + LOOP_TILE_K * 2 < K) {
-    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1);
-    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1);
-    for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
-      for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
-        mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                                   B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
-                                   A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
-                                   C_mma_reg[mg][ng]);
-      }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
     }
+    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 0);
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 2);
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 0);
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 1);
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 2);
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 3);
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+
+    // sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1);
+    // sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1);
+    // for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
+    //   for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
+    //     mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+    //                                B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+    //                                A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+    //                                C_mma_reg[mg][ng]);
+    //   }
+    // }
 
     LDG_SM_BUFFER_INDEX ^= 2;
     k_loop_offset += LOOP_TILE_K * 2;
@@ -1453,29 +1593,300 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
     global_2_ldg_reg(k_loop_offset, LDG_REG_BUFFER_INDEX_0);
     global_2_ldg_reg(k_loop_offset + LOOP_TILE_K, LDG_REG_BUFFER_INDEX_1);
 
-    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0);
-    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0);
+    // sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0);
+    // sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0);
 
-    for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
-      for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
-        mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                                   B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
-                                   A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
-                                   C_mma_reg[mg][ng]);
-      }
+    static_assert(M_GROUP_COUNT_PER_WARP == 4 && N_GROUP_COUNT_PER_WARP == 4);
+
+    // for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
+    //   for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
+    //     mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+    //                                B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+    //                                A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+    //                                C_mma_reg[mg][ng]);
+    //   }
+    // }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0);
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 2);
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0);
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 1);
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 2);
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 3);
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
     }
   }
   {
-    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1);
-    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1);
-    for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
-      for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
-        mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                                   B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
-                                   A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
-                                   C_mma_reg[mg][ng]);
-      }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
     }
+    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 0);
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 2);
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 0);
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 1);
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 2);
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 3);
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+
+    // sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1);
+    // sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1);
+    // for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
+    //   for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
+    //     mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+    //                                B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+    //                                A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+    //                                C_mma_reg[mg][ng]);
+    //   }
+    // }
 
     LDG_SM_BUFFER_INDEX ^= 2;
     k_loop_offset += LOOP_TILE_K * 2;
@@ -1483,36 +1894,451 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
     ldg_reg_2_sm(LDG_SM_BUFFER_INDEX + 1, LDG_REG_BUFFER_INDEX_1);
 
     __syncthreads();
-    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0);
-    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0);
-    for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
-      for (int ng = 0; ng < M_GROUP_COUNT_PER_WARP; ++ng) {
-        mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                                   B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
-                                   A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
-                                   C_mma_reg[mg][ng]);
-      }
+
+    // sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0);
+    // sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0);
+
+    static_assert(M_GROUP_COUNT_PER_WARP == 4 && N_GROUP_COUNT_PER_WARP == 4);
+
+    // for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
+    //   for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
+    //     mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+    //                                B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+    //                                A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+    //                                C_mma_reg[mg][ng]);
+    //   }
+    // }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0);
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 2);
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0);
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 1);
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 2);
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 3);
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
     }
   }
   {
-    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1);
-    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1);
-    for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
-      for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
-        mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                                   B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
-                                   A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
-                                   C_mma_reg[mg][ng]);
-      }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 0);
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 2);
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 0);
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 1);
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 2);
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, 3);
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                           C_mma_reg[mg][ng]);
     }
 
-    for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
-      for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
-        mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                                   B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
-                                   A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
-                                   C_mma_reg[mg][ng]);
-      }
+    // sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1);
+    // sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1);
+    // for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
+    //   for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
+    //     mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+    //                                B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+    //                                A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+    //                                C_mma_reg[mg][ng]);
+    //   }
+    // }
+
+    LDG_SM_BUFFER_INDEX ^= 2;
+    k_loop_offset += LOOP_TILE_K * 2;
+
+    // sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0);
+    // sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0);
+
+    static_assert(M_GROUP_COUNT_PER_WARP == 4 && N_GROUP_COUNT_PER_WARP == 4);
+
+    // for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
+    //   for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
+    //     mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+    //                                B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+    //                                A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+    //                                C_mma_reg[mg][ng]);
+    //   }
+    // }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0);
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 2);
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0);
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 0;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 1);
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 2);
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 3);
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 1;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 2;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 0;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 1;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 2;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
+    }
+    {
+      constexpr int mg = 3;
+      constexpr int ng = 3;
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],
+                           B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                           A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                           C_mma_reg[mg][ng]);
     }
   }
 
