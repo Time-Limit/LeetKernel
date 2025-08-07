@@ -30,7 +30,6 @@ SECTIONS=(
     --section SpeedOfLight_RooflineChart
     --section WorkloadDistribution
     --section PmSampling
-    --section PmSampling_WarpState 
 )
 
 # 用逗号连接指标列表

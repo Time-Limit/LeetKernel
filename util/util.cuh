@@ -37,11 +37,15 @@ __device__ __inline__ void print_thread_info(const char *prefix) {
 
 #define FETCH_FLOAT4(dst, src) *(float4 *)(&(dst)) = *(const float4 *)(&(src))
 
+#define FETCH_FLOAT4_WITH_PTR(dst, src) *(float4*)(dst) = *(const float4*)(src)
+
 #define STORE_FLOAT(dst, src) *(float *)(&(dst)) = *(const float *)(&(src))
 
 #define STORE_FLOAT2(dst, src) *(float2 *)(&(dst)) = *(const float2 *)(&(src))
 
 #define STORE_FLOAT4(dst, src) *(float4 *)(&(dst)) = *(const float4 *)(&(src))
+
+#define STORE_FLOAT4_WITH_PTR(dst, src) *(float4*)(dst) = *(const float4*)(src)
 
 template <int BLOCK_TILE_M, int BLOCK_TILE_N, int THREAD_TILE_M,
           int THREAD_TILE_N>
