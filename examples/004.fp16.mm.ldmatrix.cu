@@ -2252,60 +2252,6 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
       name);                                                                                                                           \
   }
 
-#define define_check_function_128x128_64x64(function)                                                                                  \
-  template<typename T, int BLOCK_TILE_M, int BLOCK_TILE_N, int WARP_TILE_M, int WARP_TILE_N>                                           \
-  void launch_128x128_64x64_##function(const T* A, const T* B, T* C, int M, int N, int K)                                              \
-  {                                                                                                                                    \
-    if (std::is_same<T, half>::value == false && std::is_same<T, __nv_bfloat16>::value == false) {                                     \
-      throw std::runtime_error("T is not supported.");                                                                                 \
-    }                                                                                                                                  \
-    constexpr int LOOP_TILE_K = 16;                                                                                                    \
-    if (!(M % BLOCK_TILE_M == 0 && N % BLOCK_TILE_N == 0 && K % LOOP_TILE_K == 0)) {                                                   \
-      throw std::runtime_error("M or N or K are not aligned.");                                                                        \
-    }                                                                                                                                  \
-    static_assert(8 <= BLOCK_TILE_M && BLOCK_TILE_M <= 256 && (BLOCK_TILE_M & (BLOCK_TILE_M - 1)) == 0);                               \
-    static_assert(16 <= BLOCK_TILE_N && BLOCK_TILE_N <= 256 && (BLOCK_TILE_N & (BLOCK_TILE_N - 1)) == 0);                              \
-    static_assert(LOOP_TILE_K == 16);                                                                                                  \
-    static_assert(BLOCK_TILE_M % WARP_TILE_M == 0 && BLOCK_TILE_N % WARP_TILE_N == 0);                                                 \
-    static_assert(WARP_TILE_N % 16 == 0 && WARP_TILE_M % 8 == 0);                                                                      \
-    constexpr int WARP_COUNT = BLOCK_TILE_N / WARP_TILE_N * BLOCK_TILE_M / WARP_TILE_M;                                                \
-    static_assert(1 <= WARP_COUNT && WARP_COUNT <= 32 && (WARP_COUNT & (WARP_COUNT - 1)) == 0);                                        \
-    dim3 grid(N / BLOCK_TILE_N, M / BLOCK_TILE_M);                                                                                     \
-    dim3 block(WARP_COUNT * 32);                                                                                                       \
-    function<T, BLOCK_TILE_M, BLOCK_TILE_N, WARP_TILE_M, WARP_TILE_N><<<grid, block>>>(A, B, C, M, N, K);                              \
-    CHECK_CUDA_ERROR();                                                                                                                \
-  }                                                                                                                                    \
-  template<typename T>                                                                                                                 \
-  void function##___128x128_64x64___check_relative_error(                                                                              \
-    const T* A, const T* B, T* C, int M, int N, int K, const std::vector<float>& base)                                                 \
-  {                                                                                                                                    \
-    std::vector<T> host_C(M* N);                                                                                                       \
-    memset(host_C.data(), 0, sizeof(T) * host_C.size());                                                                               \
-    cudaMemset(C, 0, sizeof(T) * M * N);                                                                                               \
-    launch_128x128_64x64_##function<T, 128, 128, 64, 64>(A, B, C, M, N, K);                                                            \
-    cudaMemcpy(host_C.data(), C, sizeof(T) * host_C.size(), cudaMemcpyDefault);                                                        \
-    float max_error = 0, base_value, current_value;                                                                                    \
-    int   position  = 0;                                                                                                               \
-    for (int i = 0; i < host_C.size(); ++i) {                                                                                          \
-      if (fabs(float(host_C[i]) - base[i]) > max_error) {                                                                              \
-        max_error     = fabs(float(host_C[i]) - base[i]);                                                                              \
-        base_value    = base[i];                                                                                                       \
-        current_value = host_C[i];                                                                                                     \
-        position      = i;                                                                                                             \
-      }                                                                                                                                \
-    }                                                                                                                                  \
-    const char* type = std::is_same<T, half>::value ? "half" : "__nv_bfloat16";                                                        \
-    const char* name = #function;                                                                                                      \
-    printf(                                                                                                                            \
-      "max_relative_error = %8.6f, max_absolute_error = %8.3f, base_value = %10.3f, current_value = %10.3f, type=%16s, function=%s\n", \
-      fabs(max_error / base_value),                                                                                                    \
-      max_error,                                                                                                                       \
-      base_value,                                                                                                                      \
-      current_value,                                                                                                                   \
-      type,                                                                                                                            \
-      name);                                                                                                                           \
-  }
-
 /* clang-format off */
 define_check_function(fp16_mma_m16n8k16_ldmatrix);
 define_check_function(fp16_mma_m16n8k16_ldmatrix_trans);
@@ -2315,7 +2261,6 @@ define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__qua
 define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions);
 define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global);
 define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing);
-define_check_function_128x128_64x64(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing);
 /* clang-format on */
 
 template<typename T, typename = std::enable_if_t<std::is_same<T, half>::value || std::is_same<T, __nv_bfloat16>::value>>
@@ -2355,7 +2300,6 @@ int test(const std::vector<float>& host_A,
   fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
   fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
   fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing___128x128_64x64___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
   /* clang-format on */
 
   CHECK_CUDA_RETURN(cudaFree(fp16_A));
