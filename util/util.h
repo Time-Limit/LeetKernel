@@ -1,4 +1,4 @@
-#pragma once 
+#pragma once
 
 #define thread_count_calculator()                                              \
   static_assert(BLOCK_TILE_M % THREAD_TILE_M == 0);                            \

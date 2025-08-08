@@ -41,6 +41,8 @@ __device__ __inline__ void print_thread_info(const char *prefix) {
 
 #define STORE_FLOAT(dst, src) *(float *)(&(dst)) = *(const float *)(&(src))
 
+#define STORE_FLOAT_WITH_PTR(dst, src) *(float*)((dst)) = *(const float*)((src))
+
 #define STORE_FLOAT2(dst, src) *(float2 *)(&(dst)) = *(const float2 *)(&(src))
 
 #define STORE_FLOAT4(dst, src) *(float4 *)(&(dst)) = *(const float4 *)(&(src))
