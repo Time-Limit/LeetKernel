@@ -2969,7 +2969,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
 
 template<typename T, int BLOCK_TILE_M, int BLOCK_TILE_N, int WARP_TILE_M, int WARP_TILE_N>
 __global__ void
-fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reorder_ldg(
+fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reduce_IMAD_AND_LEA(
   const T* A, const T* B, T* C, int M, int N, int K)
 {
   constexpr int WARP_COUNT   = BLOCK_TILE_M / WARP_TILE_M * BLOCK_TILE_N / WARP_TILE_N;
@@ -3070,6 +3070,26 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
   const T* A_global_ptr_for_ldg = &A[A_global_partial_offset];
   const T* B_global_ptr_for_ldg = &B[B_global_partial_offset];
 
+  static_assert(A_LDG_LOOP_COUNT <= 4);
+  static_assert(B_LDG_LOOP_COUNT <= 4);
+  static_assert(LDG_REG_BUFFER_SIZE <= 2);
+  const uint64_t A_global_ptr_for_ldg__loop_0__k_0 = (uint64_t)(A_global_ptr_for_ldg + 0 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_1__k_0 = (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_2__k_0 = (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_3__k_0 = (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_0__k_1 = (uint64_t)(A_global_ptr_for_ldg + 0 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_1__k_1 = (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_2__k_1 = (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_3__k_1 = (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t B_global_ptr_for_ldg__loop_0__k_0 = (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_1__k_0 = (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_2__k_0 = (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_3__k_0 = (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_0__k_1 = (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_1__k_1 = (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_2__k_1 = (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_3__k_1 = (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+
   const T* A_sm_ptr_for_ldg = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset];
   const T* B_sm_ptr_for_ldg = &data.mma.B_sm[B_ldg_reg_2_B_sm_partial_offset];
 
@@ -3090,12 +3110,11 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
     FETCH_FLOAT4_WITH_PTR(&A_ldg_reg[ldg_reg_buffer_index][loop][0], A_global_ptr);                                    \
   }
 
-#define B_global_2_ldg_reg(k_loop_offset, ldg_reg_buffer_index, loop)                                                  \
+#define B_global_2_ldg_reg(B_global_ptr, ldg_reg_buffer_index, loop)                                                   \
   {                                                                                                                    \
     /* const int k = lane_id % 16;                                           */                                        \
     /* const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;  */                                        \
-    FETCH_FLOAT4_WITH_PTR(&B_ldg_reg[ldg_reg_buffer_index][loop][0],                                                   \
-                          B_global_ptr_for_ldg + (loop) * WARP_COUNT * 16 + (k_loop_offset) * N);                      \
+    FETCH_FLOAT4_WITH_PTR(&B_ldg_reg[ldg_reg_buffer_index][loop][0], B_global_ptr);                                    \
   }
 
 #define A_ldg_reg_2_sm(ldg_sm_buffer_index, ldg_reg_buffer_index, loop)                                                \
@@ -3206,14 +3225,132 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
     /* LDG */                                                                                                          \
     if constexpr (ldg_switch && rank < LDG_REG_BUFFER_SIZE * (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT)) {                  \
       constexpr int ldg_addr_offset = rank / (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                    \
-      constexpr int k_offset        = ldg_addr_offset * LOOP_TILE_K;                                                   \
       constexpr int ldg_loop        = rank % (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                    \
+      static_assert(ldg_addr_offset <= 2);                                                                             \
       if constexpr (ldg_loop < A_LDG_LOOP_COUNT) {                                                                     \
-        const T* A_global_ptr = A_global_ptr_for_ldg + ldg_loop * WARP_COUNT * 16 * K + k_offset;                      \
-        A_global_2_ldg_reg(A_global_ptr + ldg_k_offset, ldg_addr_offset, ldg_loop);                                    \
+        switch (ldg_loop) {                                                                                            \
+          case 0:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_0__k_0 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_0__k_1 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 1:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_1__k_0 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_1__k_1 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 2:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_2__k_0 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_2__k_1 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 3:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_3__k_0 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_3__k_1 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          default:                                                                                                     \
+            break;                                                                                                     \
+        }                                                                                                              \
       }                                                                                                                \
       if constexpr (A_LDG_LOOP_COUNT <= ldg_loop) {                                                                    \
-        B_global_2_ldg_reg(ldg_k_offset + k_offset, ldg_addr_offset, ldg_loop - A_LDG_LOOP_COUNT);                     \
+        constexpr int real_ldg_loop = ldg_loop - A_LDG_LOOP_COUNT;                                                     \
+        switch (real_ldg_loop) {                                                                                       \
+          case 0:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_0__k_0 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_0__k_1 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 1:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_1__k_0 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_1__k_1 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 2:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_2__k_0 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_2__k_1 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 3:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_3__k_0 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_3__k_1 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          default:                                                                                                     \
+            break;                                                                                                     \
+        }                                                                                                              \
       }                                                                                                                \
     }                                                                                                                  \
     /* STG */                                                                                                          \
@@ -4359,7 +4496,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__octa_buffer__reduce_instr
     std::vector<T> host_C(M* N);                                                                                                       \
     memset(host_C.data(), 0, sizeof(T) * host_C.size());                                                                               \
     cudaMemset(C, 0, sizeof(T) * M * N);                                                                                               \
-    launch_##function<T, 128, 128, 32, 64>(A, B, C, M, N, K);                                                                          \
+    launch_##function<T, 128, 128, 64, 64>(A, B, C, M, N, K);                                                                          \
     cudaMemcpy(host_C.data(), C, sizeof(T) * host_C.size(), cudaMemcpyDefault);                                                        \
     float max_error = 0, base_value, current_value;                                                                                    \
     int   position  = 0;                                                                                                               \
@@ -4384,18 +4521,18 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__octa_buffer__reduce_instr
   }
 
 /* clang-format off */
-define_check_function(fp16_mma_m16n8k16_ldmatrix);
-define_check_function(fp16_mma_m16n8k16_ldmatrix_trans);
-define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm);
-define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer);
-define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions);
-define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions);
-define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global);
-define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing);
-define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts);
-define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt);
-define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reorder_ldg);
-define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__octa_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts);
+// define_check_function(fp16_mma_m16n8k16_ldmatrix);
+// define_check_function(fp16_mma_m16n8k16_ldmatrix_trans);
+// define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm);
+// define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer);
+// define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions);
+// define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions);
+// define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global);
+// define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing);
+// define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts);
+// define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt);
+define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reduce_IMAD_AND_LEA);
+// define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__octa_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts);
 /* clang-format on */
 
 template<typename T, typename = std::enable_if_t<std::is_same<T, half>::value || std::is_same<T, __nv_bfloat16>::value>>
@@ -4427,17 +4564,17 @@ int test(const std::vector<float>& host_A,
   }
 
   /* clang-format off */
-  fp16_mma_m16n8k16_ldmatrix___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m16n8k16_ldmatrix_trans___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reorder_ldg___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__octa_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  // fp16_mma_m16n8k16_ldmatrix___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  // fp16_mma_m16n8k16_ldmatrix_trans___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  // fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  // fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  // fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  // fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  // fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  // fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  // fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reduce_IMAD_AND_LEA___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  // fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__octa_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
   /* clang-format on */
 
   CHECK_CUDA_RETURN(cudaFree(fp16_A));
