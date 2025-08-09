@@ -3121,6 +3121,21 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
     }                                                                                                                  \
   }
 
+#define A_global_2_ldg_reg(k_loop_offset, ldg_reg_buffer_index, loop)                                                  \
+  {                                                                                                                    \
+    /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */                                             \
+    /* const int k = lane_id / 16 * 8; */                                                                              \
+    FETCH_FLOAT4_WITH_PTR(&A_ldg_reg[ldg_reg_buffer_index][loop][0], A_global_ptr_for_ldg[loop] + k_loop_offset);      \
+  }
+
+#define B_global_2_ldg_reg(k_loop_offset, ldg_reg_buffer_index, loop)                                                  \
+  {                                                                                                                    \
+    /* const int k = lane_id % 16;                                           */                                        \
+    /* const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;  */                                        \
+    FETCH_FLOAT4_WITH_PTR(&B_ldg_reg[ldg_reg_buffer_index][loop][0],                                                   \
+                          B_global_ptr_for_ldg[loop] + (k_loop_offset) * N);                                           \
+  }
+
 #define ldg_reg_2_sm(ldg_sm_buffer_index, ldg_reg_buffer_index)                                                        \
   {                                                                                                                    \
     _Pragma("unroll") for (int loop = 0; loop < A_LDG_LOOP_COUNT; ++loop)                                              \
@@ -3200,12 +3215,15 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
                         ldm_reg_buffer_index,                                                                          \
                         mma_reg_buffer_index,                                                                          \
                         sts_sm_base_index,                                                                             \
+                        ldg_k_offset,                                                                                  \
                         rank,                                                                                          \
                         ldm_switch,                                                                                    \
                         mma_switch,                                                                                    \
                         sts_switch,                                                                                    \
-                        stg_switch)                                                                                    \
+                        stg_switch,                                                                                    \
+                        ldg_switch)                                                                                    \
   {                                                                                                                    \
+    /* STS */                                                                                                          \
     constexpr int MxN_GORUP_COUNT = M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP;                                   \
     constexpr int STS_COUNT       = LDG_REG_BUFFER_SIZE * (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                       \
     static_assert(STS_COUNT <= MxN_GORUP_COUNT);                                                                       \
@@ -3221,6 +3239,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
           sts_sm_base_index + sts_addr_offset, LDG_REG_BUFFER_INDEX_0 + sts_addr_offset, sts_loop - A_LDG_LOOP_COUNT); \
       }                                                                                                                \
     }                                                                                                                  \
+    /* MMA */                                                                                                          \
     if constexpr (mma_switch && rank < M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP) {                              \
       constexpr int mg = rank % M_GROUP_COUNT_PER_WARP;                                                                \
       constexpr int ng = rank / M_GROUP_COUNT_PER_WARP;                                                                \
@@ -3229,6 +3248,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
                            A_mma_reg[mma_reg_buffer_index][mg],                                                        \
                            C_mma_reg[mg][ng]);                                                                         \
     }                                                                                                                  \
+    /* LDM */                                                                                                          \
     static_assert(M_GROUP_COUNT_PER_WARP == 1 || M_GROUP_COUNT_PER_WARP % 2 == 0);                                     \
     static_assert((M_GROUP_COUNT_PER_WARP + 1) / 2 + N_GROUP_COUNT_PER_WARP < MxN_GORUP_COUNT);                        \
     if constexpr (ldm_switch && rank < (M_GROUP_COUNT_PER_WARP + 1) / 2) {                                             \
@@ -3238,6 +3258,21 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
                   && rank < (M_GROUP_COUNT_PER_WARP + 1) / 2 + N_GROUP_COUNT_PER_WARP) {                               \
       sm_2_B_mma_reg(ldm_sm_buffer_index, ldm_reg_buffer_index, rank - (M_GROUP_COUNT_PER_WARP + 1) / 2);              \
     }                                                                                                                  \
+    /* LDG */                                                                                                          \
+    if constexpr (ldg_switch && rank < LDG_REG_BUFFER_SIZE * (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT)) {                  \
+      constexpr int ldg_addr_offset = rank / (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                    \
+      constexpr int ldg_loop        = rank % (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                    \
+      if constexpr (ldg_loop < A_LDG_LOOP_COUNT) {                                                                     \
+        A_global_2_ldg_reg(                                                                                            \
+          ldg_k_offset + ldg_addr_offset * LOOP_TILE_K, LDG_REG_BUFFER_INDEX_0 + ldg_addr_offset, ldg_loop);           \
+      }                                                                                                                \
+      if constexpr (A_LDG_LOOP_COUNT <= ldg_loop) {                                                                    \
+        B_global_2_ldg_reg(ldg_k_offset + ldg_addr_offset * LOOP_TILE_K,                                               \
+                           LDG_REG_BUFFER_INDEX_0 + ldg_addr_offset,                                                   \
+                           ldg_loop - A_LDG_LOOP_COUNT);                                                               \
+      }                                                                                                                \
+    }                                                                                                                  \
+    /* STG */                                                                                                          \
     if constexpr (stg_switch && rank < M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP) {                              \
       constexpr int mg = rank % M_GROUP_COUNT_PER_WARP;                                                                \
       constexpr int ng = rank / M_GROUP_COUNT_PER_WARP;                                                                \
@@ -3268,44 +3303,46 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
                                   ldm_reg_buf_index,                                                                   \
                                   mma_reg_buf_index,                                                                   \
                                   sts_sm_base_index,                                                                   \
+                                  ldg_k_offset,                                                                        \
                                   ldm_switch,                                                                          \
                                   mma_switch,                                                                          \
                                   sts_switch,                                                                          \
-                                  stg_switch)                                                                          \
+                                  stg_switch,                                                                          \
+                                  ldg_switch)                                                                          \
   static_assert(M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP <= 32);                                                \
   /* clang-format off */ \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index,  0, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index,  1, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index,  2, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index,  3, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index,  4, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index,  5, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index,  6, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index,  7, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index,  8, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index,  9, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 10, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 11, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 12, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 13, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 14, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 15, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 16, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 17, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 18, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 19, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 20, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 21, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 22, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 23, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 24, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 25, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 26, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 27, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 28, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 29, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 30, ldm_switch, mma_switch, sts_switch, stg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, 31, ldm_switch, mma_switch, sts_switch, stg_switch);
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  0, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  1, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  2, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  3, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  4, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  5, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  6, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  7, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  8, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  9, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 10, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 11, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 12, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 13, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 14, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 15, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 16, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 17, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 18, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 19, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 20, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 21, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 22, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 23, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 24, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 25, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 26, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 27, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 28, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 29, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 30, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 31, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);
   /* clang-format on */
 
   global_2_ldg_reg(0, LDG_REG_BUFFER_INDEX_0);
@@ -3317,7 +3354,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
   int LDG_SM_BUFFER_INDEX = 0;
   int k_loop_offset       = LOOP_TILE_K * 2;
 
-  alternate_ldm_mma_sts_stg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0, 0, true, false, false, false);
+  alternate_ldm_mma_sts_stg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0, 0, 0, true, false, false, false, false);
 
   global_2_ldg_reg(k_loop_offset, LDG_REG_BUFFER_INDEX_0);
   global_2_ldg_reg(k_loop_offset + LOOP_TILE_K, LDG_REG_BUFFER_INDEX_1);
@@ -3328,9 +3365,11 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
                               MMA_REG_BUFFER_INDEX_1,
                               MMA_REG_BUFFER_INDEX_0,
                               (LDG_SM_BUFFER_INDEX ^ 2),
+                              0,
                               true,
                               true,
                               true,
+                              false,
                               false);
 
     LDG_SM_BUFFER_INDEX ^= 2;
@@ -3338,11 +3377,11 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
 
     __syncthreads();
 
-    global_2_ldg_reg(k_loop_offset, LDG_REG_BUFFER_INDEX_0);
-    global_2_ldg_reg(k_loop_offset + LOOP_TILE_K, LDG_REG_BUFFER_INDEX_1);
+    // global_2_ldg_reg(k_loop_offset, LDG_REG_BUFFER_INDEX_0);
+    // global_2_ldg_reg(k_loop_offset + LOOP_TILE_K, LDG_REG_BUFFER_INDEX_1);
 
     alternate_ldm_mma_sts_stg(
-      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, true, true, false, false);
+      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, k_loop_offset, true, true, false, false, true);
   }
 
   {
@@ -3350,9 +3389,11 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
                               MMA_REG_BUFFER_INDEX_1,
                               MMA_REG_BUFFER_INDEX_0,
                               (LDG_SM_BUFFER_INDEX ^ 2),
+                              0,
                               true,
                               true,
                               true,
+                              false,
                               false);
     LDG_SM_BUFFER_INDEX ^= 2;
     k_loop_offset += LOOP_TILE_K * 2;
@@ -3360,15 +3401,15 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
     __syncthreads();
 
     alternate_ldm_mma_sts_stg(
-      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, true, true, false, false);
+      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, 0, true, true, false, false, false);
   }
 
   {
     alternate_ldm_mma_sts_stg(
-      LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, 0, true, true, false, false);
+      LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, 0, 0, true, true, false, false, false);
 
     alternate_ldm_mma_sts_stg(
-      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, false, true, false, true);
+      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, 0, false, true, false, true, false);
   }
 
 #undef global_2_ldg_reg
