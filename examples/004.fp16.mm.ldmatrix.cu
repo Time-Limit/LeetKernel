@@ -545,9 +545,9 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(const T* A,
   constexpr int WARP_COUNT   = BLOCK_TILE_M / WARP_TILE_M * BLOCK_TILE_N / WARP_TILE_N;
   constexpr int THREAD_COUNT = WARP_COUNT * 32;
 
-  constexpr int LOOP_TILE_K         = 16;
-  constexpr int LDG_SM_BUFFER_SIZE  = 4;
-  constexpr int LDG_REG_BUFFER_SIZE = 2;
+  constexpr int LOOP_TILE_K            = 16;
+  constexpr int LDG_SM_BUFFER_SIZE     = 4;
+  constexpr int LDG_REG_BUFFER_SIZE    = 2;
   constexpr int LDG_REG_BUFFER_INDEX_0 = 0;
   constexpr int LDG_REG_BUFFER_INDEX_1 = 1;
   // The 64 elements of type T in each 8x8 matrix are stored consecutively in a single layer.
@@ -589,10 +589,10 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(const T* A,
   const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
   const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
 
-  const int     warp_id                    = threadIdx.x / 32;
-  const int     lane_id                    = threadIdx.x % 32;
-  constexpr int transposed_lane_id_mask[4] = {0x00, 0x18, 0x18, 0x00};
-  const int     transposed_lane_id         = lane_id ^ transposed_lane_id_mask[lane_id / 8];
+  const int warp_id                 = threadIdx.x / 32;
+  const int lane_id                 = threadIdx.x % 32;
+  const int transposed_lane_id_mask = (lane_id / 8 == 0 || lane_id / 8 == 3) ? 0x00 : 0x18;
+  const int transposed_lane_id      = lane_id ^ transposed_lane_id_mask;
 
   constexpr int M_MMA_WARP_COUNT       = BLOCK_TILE_M / WARP_TILE_M;
   constexpr int M_GROUP_COUNT_PER_WARP = WARP_TILE_M / 8;
@@ -659,7 +659,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(const T* A,
                  : "r"(src));                                                                                          \
   }
 
-#define mma_m16n8k16_row_col_macro(d, a, b, c)                                                                               \
+#define mma_m16n8k16_row_col_macro(d, a, b, c)                                                                         \
   uint32_t const* A = reinterpret_cast<uint32_t const*>(&a);                                                           \
   uint32_t const* B = reinterpret_cast<uint32_t const*>(&b);                                                           \
   float const*    C = reinterpret_cast<float const*>(&c);                                                              \
@@ -689,7 +689,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(const T* A,
   __syncthreads();
 
   int LDG_SM_BUFFER_INDEX = 0;
-  int k_loop_offset = LOOP_TILE_K * 2;
+  int k_loop_offset       = LOOP_TILE_K * 2;
 
   for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
     sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, mg);
@@ -706,9 +706,9 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(const T* A,
     for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
       for (int ng = 0; ng < M_GROUP_COUNT_PER_WARP; ++ng) {
         mma_m16n8k16_row_col_macro(C_mma_reg[mg][ng],
-                             B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
-                             A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
-                             C_mma_reg[mg][ng]);
+                                   B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                                   A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                                   C_mma_reg[mg][ng]);
       }
       sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, mg);
       sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, mg);
@@ -716,9 +716,9 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(const T* A,
     for (int ng = M_GROUP_COUNT_PER_WARP; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
       for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
         mma_m16n8k16_row_col_macro(C_mma_reg[mg][ng],
-                             B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
-                             A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
-                             C_mma_reg[mg][ng]);
+                                   B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                                   A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                                   C_mma_reg[mg][ng]);
       }
       sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, ng);
       sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, ng);
@@ -737,9 +737,9 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(const T* A,
     for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
       for (int ng = 0; ng < M_GROUP_COUNT_PER_WARP; ++ng) {
         mma_m16n8k16_row_col_macro(C_mma_reg[mg][ng],
-                             B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
-                             A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
-                             C_mma_reg[mg][ng]);
+                                   B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                                   A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                                   C_mma_reg[mg][ng]);
       }
       sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, mg);
       sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, mg);
@@ -747,9 +747,9 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(const T* A,
     for (int ng = M_GROUP_COUNT_PER_WARP; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
       for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
         mma_m16n8k16_row_col_macro(C_mma_reg[mg][ng],
-                             B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
-                             A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
-                             C_mma_reg[mg][ng]);
+                                   B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                                   A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                                   C_mma_reg[mg][ng]);
       }
       sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, ng);
       sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, ng);
@@ -760,9 +760,9 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(const T* A,
     for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
       for (int ng = 0; ng < M_GROUP_COUNT_PER_WARP; ++ng) {
         mma_m16n8k16_row_col_macro(C_mma_reg[mg][ng],
-                             B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
-                             A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
-                             C_mma_reg[mg][ng]);
+                                   B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                                   A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                                   C_mma_reg[mg][ng]);
       }
       sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, mg);
       sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, mg);
@@ -789,9 +789,9 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(const T* A,
     for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
       for (int ng = 0; ng < M_GROUP_COUNT_PER_WARP; ++ng) {
         mma_m16n8k16_row_col_macro(C_mma_reg[mg][ng],
-                             B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
-                             A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
-                             C_mma_reg[mg][ng]);
+                                   B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                                   A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                                   C_mma_reg[mg][ng]);
       }
       sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, mg);
       sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, mg);
@@ -799,9 +799,9 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(const T* A,
     for (int ng = M_GROUP_COUNT_PER_WARP; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
       for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
         mma_m16n8k16_row_col_macro(C_mma_reg[mg][ng],
-                             B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
-                             A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
-                             C_mma_reg[mg][ng]);
+                                   B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                                   A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                                   C_mma_reg[mg][ng]);
       }
       sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, ng);
       sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, ng);
@@ -812,9 +812,9 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(const T* A,
     for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
       for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
         mma_m16n8k16_row_col_macro(C_mma_reg[mg][ng],
-                             B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
-                             A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
-                             C_mma_reg[mg][ng]);
+                                   B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                                   A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                                   C_mma_reg[mg][ng]);
       }
       sm_2_A_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, mg);
       sm_2_B_mma_reg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, mg);
@@ -823,9 +823,9 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer(const T* A,
     for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
       for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
         mma_m16n8k16_row_col_macro(C_mma_reg[mg][ng],
-                             B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
-                             A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
-                             C_mma_reg[mg][ng]);
+                                   B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                                   A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                                   C_mma_reg[mg][ng]);
       }
     }
   }
@@ -917,10 +917,10 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
   const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
   const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
 
-  const int     warp_id                    = threadIdx.x / 32;
-  const int     lane_id                    = threadIdx.x % 32;
-  constexpr int transposed_lane_id_mask[4] = {0x00, 0x18, 0x18, 0x00};
-  const int     transposed_lane_id         = lane_id ^ transposed_lane_id_mask[lane_id / 8];
+  const int warp_id                 = threadIdx.x / 32;
+  const int lane_id                 = threadIdx.x % 32;
+  const int transposed_lane_id_mask = (lane_id / 8 == 0 || lane_id / 8 == 3) ? 0x00 : 0x18;
+  const int transposed_lane_id      = lane_id ^ transposed_lane_id_mask;
 
   constexpr int M_MMA_WARP_COUNT       = BLOCK_TILE_M / WARP_TILE_M;
   constexpr int M_GROUP_COUNT_PER_WARP = WARP_TILE_M / 8;
@@ -957,7 +957,7 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
   const T* A_sm_ptr_for_ldg[A_LDG_LOOP_COUNT];
   const T* B_sm_ptr_for_ldg[B_LDG_LOOP_COUNT];
   for (int loop = 0; loop < A_LDG_LOOP_COUNT; ++loop) {
-    A_sm_ptr_for_ldg[loop] = &A_sm[A_ldg_reg_2_A_sm_partial_offset +loop * WARP_COUNT * 16 * A_sm_dim3];
+    A_sm_ptr_for_ldg[loop] = &A_sm[A_ldg_reg_2_A_sm_partial_offset + loop * WARP_COUNT * 16 * A_sm_dim3];
   }
   for (int loop = 0; loop < B_LDG_LOOP_COUNT; ++loop) {
     B_sm_ptr_for_ldg[loop] = &B_sm[B_ldg_reg_2_B_sm_partial_offset + loop * WARP_COUNT * 2 * B_sm_dim3];
@@ -1075,9 +1075,9 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
     for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
       for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
         mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                                   B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
-                                   A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
-                                   C_mma_reg[mg][ng]);
+                             B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                             A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                             C_mma_reg[mg][ng]);
       }
     }
 
@@ -1097,9 +1097,9 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
     for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
       for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
         mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                                   B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
-                                   A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
-                                   C_mma_reg[mg][ng]);
+                             B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                             A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                             C_mma_reg[mg][ng]);
       }
     }
   }
@@ -1109,9 +1109,9 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
     for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
       for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
         mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                                   B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
-                                   A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
-                                   C_mma_reg[mg][ng]);
+                             B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                             A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                             C_mma_reg[mg][ng]);
       }
     }
 
@@ -1126,9 +1126,9 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
     for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
       for (int ng = 0; ng < M_GROUP_COUNT_PER_WARP; ++ng) {
         mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                                   B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
-                                   A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
-                                   C_mma_reg[mg][ng]);
+                             B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                             A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                             C_mma_reg[mg][ng]);
       }
     }
   }
@@ -1138,18 +1138,18 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
     for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
       for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
         mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                                   B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
-                                   A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
-                                   C_mma_reg[mg][ng]);
+                             B_mma_reg[MMA_REG_BUFFER_INDEX_0][ng],
+                             A_mma_reg[MMA_REG_BUFFER_INDEX_0][mg],
+                             C_mma_reg[mg][ng]);
       }
     }
 
     for (int mg = 0; mg < M_GROUP_COUNT_PER_WARP; ++mg) {
       for (int ng = 0; ng < N_GROUP_COUNT_PER_WARP; ++ng) {
         mma_m16n8k16_row_col(C_mma_reg[mg][ng],
-                                   B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
-                                   A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
-                                   C_mma_reg[mg][ng]);
+                             B_mma_reg[MMA_REG_BUFFER_INDEX_1][ng],
+                             A_mma_reg[MMA_REG_BUFFER_INDEX_1][mg],
+                             C_mma_reg[mg][ng]);
       }
     }
   }
@@ -1241,10 +1241,10 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
   const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
   const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
 
-  const int     warp_id                    = threadIdx.x / 32;
-  const int     lane_id                    = threadIdx.x % 32;
-  constexpr int transposed_lane_id_mask[4] = {0x00, 0x18, 0x18, 0x00};
-  const int     transposed_lane_id         = lane_id ^ transposed_lane_id_mask[lane_id / 8];
+  const int warp_id                 = threadIdx.x / 32;
+  const int lane_id                 = threadIdx.x % 32;
+  const int transposed_lane_id_mask = (lane_id / 8 == 0 || lane_id / 8 == 3) ? 0x00 : 0x18;
+  const int transposed_lane_id      = lane_id ^ transposed_lane_id_mask;
 
   constexpr int M_MMA_WARP_COUNT       = BLOCK_TILE_M / WARP_TILE_M;
   constexpr int M_GROUP_COUNT_PER_WARP = WARP_TILE_M / 8;
@@ -1281,7 +1281,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
   const T* A_sm_ptr_for_ldg[A_LDG_LOOP_COUNT];
   const T* B_sm_ptr_for_ldg[B_LDG_LOOP_COUNT];
   for (int loop = 0; loop < A_LDG_LOOP_COUNT; ++loop) {
-    A_sm_ptr_for_ldg[loop] = &A_sm[A_ldg_reg_2_A_sm_partial_offset +loop * WARP_COUNT * 16 * A_sm_dim3];
+    A_sm_ptr_for_ldg[loop] = &A_sm[A_ldg_reg_2_A_sm_partial_offset + loop * WARP_COUNT * 16 * A_sm_dim3];
   }
   for (int loop = 0; loop < B_LDG_LOOP_COUNT; ++loop) {
     B_sm_ptr_for_ldg[loop] = &B_sm[B_ldg_reg_2_B_sm_partial_offset + loop * WARP_COUNT * 2 * B_sm_dim3];
@@ -1509,7 +1509,8 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
 }
 
 template<typename T, int BLOCK_TILE_M, int BLOCK_TILE_N, int WARP_TILE_M, int WARP_TILE_N>
-__global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global(
+__global__ void
+fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global(
   const T* A, const T* B, T* C, int M, int N, int K)
 {
   constexpr int WARP_COUNT   = BLOCK_TILE_M / WARP_TILE_M * BLOCK_TILE_N / WARP_TILE_N;
@@ -1575,10 +1576,10 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
   const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
   const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
 
-  const int     warp_id                    = threadIdx.x / 32;
-  const int     lane_id                    = threadIdx.x % 32;
-  constexpr int transposed_lane_id_mask[4] = {0x00, 0x18, 0x18, 0x00};
-  const int     transposed_lane_id         = lane_id ^ transposed_lane_id_mask[lane_id / 8];
+  const int warp_id                 = threadIdx.x / 32;
+  const int lane_id                 = threadIdx.x % 32;
+  const int transposed_lane_id_mask = (lane_id / 8 == 0 || lane_id / 8 == 3) ? 0x00 : 0x18;
+  const int transposed_lane_id      = lane_id ^ transposed_lane_id_mask;
 
   constexpr int M_MMA_WARP_COUNT       = BLOCK_TILE_M / WARP_TILE_M;
   constexpr int M_GROUP_COUNT_PER_WARP = WARP_TILE_M / 8;
@@ -1616,7 +1617,7 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
   const T* A_sm_ptr_for_ldg[A_LDG_LOOP_COUNT];
   const T* B_sm_ptr_for_ldg[B_LDG_LOOP_COUNT];
   for (int loop = 0; loop < A_LDG_LOOP_COUNT; ++loop) {
-    A_sm_ptr_for_ldg[loop] = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset +loop * WARP_COUNT * 16 * A_sm_dim3];
+    A_sm_ptr_for_ldg[loop] = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset + loop * WARP_COUNT * 16 * A_sm_dim3];
   }
   for (int loop = 0; loop < B_LDG_LOOP_COUNT; ++loop) {
     B_sm_ptr_for_ldg[loop] = &data.mma.B_sm[B_ldg_reg_2_B_sm_partial_offset + loop * WARP_COUNT * 2 * B_sm_dim3];
@@ -1802,8 +1803,7 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
 
   while (k_loop_offset + LOOP_TILE_K * 2 < K) {
 
-    alternate_mma_ldm_stg(
-      LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, true, true, false);
+    alternate_mma_ldm_stg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, true, true, false);
 
     LDG_SM_BUFFER_INDEX ^= 2;
     k_loop_offset += LOOP_TILE_K * 2;
@@ -1815,12 +1815,10 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
     global_2_ldg_reg(k_loop_offset, LDG_REG_BUFFER_INDEX_0);
     global_2_ldg_reg(k_loop_offset + LOOP_TILE_K, LDG_REG_BUFFER_INDEX_1);
 
-    alternate_mma_ldm_stg(
-      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, true, true, false);
+    alternate_mma_ldm_stg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, true, true, false);
   }
   {
-    alternate_mma_ldm_stg(
-      LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, true, true, false);
+    alternate_mma_ldm_stg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, true, true, false);
 
     LDG_SM_BUFFER_INDEX ^= 2;
     k_loop_offset += LOOP_TILE_K * 2;
@@ -1829,16 +1827,13 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
 
     __syncthreads();
 
-    alternate_mma_ldm_stg(
-      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, true, true, false);
+    alternate_mma_ldm_stg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, true, true, false);
   }
 
   {
-    alternate_mma_ldm_stg(
-      LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, true, true, false);
+    alternate_mma_ldm_stg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, true, true, false);
 
-    alternate_mma_ldm_stg(
-      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, false, true, true);
+    alternate_mma_ldm_stg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, false, true, true);
   }
 
 #undef global_2_ldg_reg
@@ -1850,7 +1845,8 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
 }
 
 template<typename T, int BLOCK_TILE_M, int BLOCK_TILE_N, int WARP_TILE_M, int WARP_TILE_N>
-__global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing(
+__global__ void
+fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing(
   const T* A, const T* B, T* C, int M, int N, int K)
 {
   constexpr int WARP_COUNT   = BLOCK_TILE_M / WARP_TILE_M * BLOCK_TILE_N / WARP_TILE_N;
@@ -1916,10 +1912,10 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
   const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
   const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
 
-  const int     warp_id                    = threadIdx.x / 32;
-  const int     lane_id                    = threadIdx.x % 32;
-  constexpr int transposed_lane_id_mask[4] = {0x00, 0x18, 0x18, 0x00};
-  const int     transposed_lane_id         = lane_id ^ transposed_lane_id_mask[lane_id / 8];
+  const int warp_id                 = threadIdx.x / 32;
+  const int lane_id                 = threadIdx.x % 32;
+  const int transposed_lane_id_mask = (lane_id / 8 == 0 || lane_id / 8 == 3) ? 0x00 : 0x18;
+  const int transposed_lane_id      = lane_id ^ transposed_lane_id_mask;
 
   constexpr int M_MMA_WARP_COUNT       = BLOCK_TILE_M / WARP_TILE_M;
   constexpr int M_GROUP_COUNT_PER_WARP = WARP_TILE_M / 8;
@@ -1962,7 +1958,7 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
   const T* A_sm_ptr_for_ldg[A_LDG_LOOP_COUNT];
   const T* B_sm_ptr_for_ldg[B_LDG_LOOP_COUNT];
   for (int loop = 0; loop < A_LDG_LOOP_COUNT; ++loop) {
-    A_sm_ptr_for_ldg[loop] = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset +loop * WARP_COUNT * 16 * A_sm_dim3];
+    A_sm_ptr_for_ldg[loop] = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset + loop * WARP_COUNT * 16 * A_sm_dim3];
   }
   for (int loop = 0; loop < B_LDG_LOOP_COUNT; ++loop) {
     B_sm_ptr_for_ldg[loop] = &data.mma.B_sm[B_ldg_reg_2_B_sm_partial_offset + loop * WARP_COUNT * 2 * B_sm_dim3];
@@ -2151,8 +2147,7 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
 
   while (k_loop_offset + LOOP_TILE_K * 2 < K) {
 
-    alternate_mma_ldm_stg(
-      LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, true, true, false);
+    alternate_mma_ldm_stg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, true, true, false);
 
     LDG_SM_BUFFER_INDEX ^= 2;
     k_loop_offset += LOOP_TILE_K * 2;
@@ -2164,12 +2159,10 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
     global_2_ldg_reg(k_loop_offset, LDG_REG_BUFFER_INDEX_0);
     global_2_ldg_reg(k_loop_offset + LOOP_TILE_K, LDG_REG_BUFFER_INDEX_1);
 
-    alternate_mma_ldm_stg(
-      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, true, true, false);
+    alternate_mma_ldm_stg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, true, true, false);
   }
   {
-    alternate_mma_ldm_stg(
-      LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, true, true, false);
+    alternate_mma_ldm_stg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, true, true, false);
 
     LDG_SM_BUFFER_INDEX ^= 2;
     k_loop_offset += LOOP_TILE_K * 2;
@@ -2178,16 +2171,13 @@ __global__ void fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_bu
 
     __syncthreads();
 
-    alternate_mma_ldm_stg(
-      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, true, true, false);
+    alternate_mma_ldm_stg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, true, true, false);
   }
 
   {
-    alternate_mma_ldm_stg(
-      LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, true, true, false);
+    alternate_mma_ldm_stg(LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, true, true, false);
 
-    alternate_mma_ldm_stg(
-      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, false, true, true);
+    alternate_mma_ldm_stg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, false, true, true);
   }
 
 #undef global_2_ldg_reg
@@ -2266,10 +2256,10 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
   const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
   const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
 
-  const int     warp_id                    = threadIdx.x / 32;
-  const int     lane_id                    = threadIdx.x % 32;
-  constexpr int transposed_lane_id_mask[4] = {0x00, 0x18, 0x18, 0x00};
-  const int     transposed_lane_id         = lane_id ^ transposed_lane_id_mask[lane_id / 8];
+  const int warp_id                 = threadIdx.x / 32;
+  const int lane_id                 = threadIdx.x % 32;
+  const int transposed_lane_id_mask = (lane_id / 8 == 0 || lane_id / 8 == 3) ? 0x00 : 0x18;
+  const int transposed_lane_id      = lane_id ^ transposed_lane_id_mask;
 
   constexpr int M_MMA_WARP_COUNT       = BLOCK_TILE_M / WARP_TILE_M;
   constexpr int M_GROUP_COUNT_PER_WARP = WARP_TILE_M / 8;
@@ -2312,7 +2302,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
   const T* A_sm_ptr_for_ldg[A_LDG_LOOP_COUNT];
   const T* B_sm_ptr_for_ldg[B_LDG_LOOP_COUNT];
   for (int loop = 0; loop < A_LDG_LOOP_COUNT; ++loop) {
-    A_sm_ptr_for_ldg[loop] = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset +loop * WARP_COUNT * 16 * A_sm_dim3];
+    A_sm_ptr_for_ldg[loop] = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset + loop * WARP_COUNT * 16 * A_sm_dim3];
   }
   for (int loop = 0; loop < B_LDG_LOOP_COUNT; ++loop) {
     B_sm_ptr_for_ldg[loop] = &data.mma.B_sm[B_ldg_reg_2_B_sm_partial_offset + loop * WARP_COUNT * 2 * B_sm_dim3];
@@ -2647,10 +2637,10 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
   const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
   const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
 
-  const int     warp_id                    = threadIdx.x / 32;
-  const int     lane_id                    = threadIdx.x % 32;
-  constexpr int transposed_lane_id_mask[4] = {0x00, 0x18, 0x18, 0x00};
-  const int     transposed_lane_id         = lane_id ^ transposed_lane_id_mask[lane_id / 8];
+  const int warp_id                 = threadIdx.x / 32;
+  const int lane_id                 = threadIdx.x % 32;
+  const int transposed_lane_id_mask = (lane_id / 8 == 0 || lane_id / 8 == 3) ? 0x00 : 0x18;
+  const int transposed_lane_id      = lane_id ^ transposed_lane_id_mask;
 
   constexpr int M_MMA_WARP_COUNT       = BLOCK_TILE_M / WARP_TILE_M;
   constexpr int M_GROUP_COUNT_PER_WARP = WARP_TILE_M / 8;
@@ -2693,7 +2683,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
   const T* A_sm_ptr_for_ldg[A_LDG_LOOP_COUNT];
   const T* B_sm_ptr_for_ldg[B_LDG_LOOP_COUNT];
   for (int loop = 0; loop < A_LDG_LOOP_COUNT; ++loop) {
-    A_sm_ptr_for_ldg[loop] = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset +loop * WARP_COUNT * 16 * A_sm_dim3];
+    A_sm_ptr_for_ldg[loop] = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset + loop * WARP_COUNT * 16 * A_sm_dim3];
   }
   for (int loop = 0; loop < B_LDG_LOOP_COUNT; ++loop) {
     B_sm_ptr_for_ldg[loop] = &data.mma.B_sm[B_ldg_reg_2_B_sm_partial_offset + loop * WARP_COUNT * 2 * B_sm_dim3];
@@ -2972,12 +2962,15 @@ __global__ void
 fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reduce_IMAD_AND_LEA(
   const T* A, const T* B, T* C, int M, int N, int K)
 {
+  // if(threadIdx.x == 0) {
+  //   printf("%03d %03d %03d\n", blockIdx.x, blockIdx.y, get_smid());
+  // }
   constexpr int WARP_COUNT   = BLOCK_TILE_M / WARP_TILE_M * BLOCK_TILE_N / WARP_TILE_N;
   constexpr int THREAD_COUNT = WARP_COUNT * 32;
 
-  constexpr int LOOP_TILE_K            = 16;
-  constexpr int LDG_SM_BUFFER_SIZE     = 4;
-  constexpr int LDG_REG_BUFFER_SIZE    = 2;
+  constexpr int LOOP_TILE_K         = 16;
+  constexpr int LDG_SM_BUFFER_SIZE  = 4;
+  constexpr int LDG_REG_BUFFER_SIZE = 2;
 
   constexpr int A_sm_dim0 = LDG_SM_BUFFER_SIZE;
   constexpr int A_sm_dim1 = 2;
@@ -3033,10 +3026,10 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
   const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
   const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
 
-  const int     warp_id                    = threadIdx.x / 32;
-  const int     lane_id                    = threadIdx.x % 32;
-  constexpr int transposed_lane_id_mask[4] = {0x00, 0x18, 0x18, 0x00};
-  const int     transposed_lane_id         = lane_id ^ transposed_lane_id_mask[lane_id / 8];
+  const int warp_id                 = threadIdx.x / 32;
+  const int lane_id                 = threadIdx.x % 32;
+  const int transposed_lane_id_mask = (lane_id / 8 == 0 || lane_id / 8 == 3) ? 0x00 : 0x18;
+  const int transposed_lane_id      = lane_id ^ transposed_lane_id_mask;
 
   constexpr int M_MMA_WARP_COUNT       = BLOCK_TILE_M / WARP_TILE_M;
   constexpr int M_GROUP_COUNT_PER_WARP = WARP_TILE_M / 8;
@@ -3103,18 +3096,34 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
   const T* A_sm_ptr_for_mma = &data.mma.A_sm[A_sm_2_A_mma_reg_partial_offset + lane_id / 16 * 8 * A_sm_dim3];
   const T* B_sm_ptr_for_mma = &data.mma.B_sm[B_sm_2_B_mma_reg_partial_offset];
 
-#define A_global_2_ldg_reg(A_global_ptr, ldg_reg_buffer_index, loop)                                                   \
+  enum {
+    LDG_SWITCH_OFF             = 0,
+    LDG_SWITCH_ON_EVICT_NORMAL = 1,
+    LDG_SWITCH_ON_EVICT_LAST   = 2,
+  };
+
+#define A_global_2_ldg_reg(A_global_ptr, ldg_reg_buffer_index, loop, cache_policy)                                     \
   {                                                                                                                    \
     /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */                                             \
     /* const int k = lane_id / 16 * 8; */                                                                              \
-    FETCH_FLOAT4_WITH_PTR(&A_ldg_reg[ldg_reg_buffer_index][loop][0], A_global_ptr);                                    \
+    if constexpr (cache_policy == LDG_SWITCH_ON_EVICT_LAST) {                                                          \
+      FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);                       \
+    }                                                                                                                  \
+    else {                                                                                                             \
+      FETCH_FLOAT4_PREFETCH_256B_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);                    \
+    }                                                                                                                  \
   }
 
-#define B_global_2_ldg_reg(B_global_ptr, ldg_reg_buffer_index, loop)                                                   \
+#define B_global_2_ldg_reg(B_global_ptr, ldg_reg_buffer_index, loop, cache_policy)                                     \
   {                                                                                                                    \
     /* const int k = lane_id % 16;                                           */                                        \
     /* const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;  */                                        \
-    FETCH_FLOAT4_WITH_PTR(&B_ldg_reg[ldg_reg_buffer_index][loop][0], B_global_ptr);                                    \
+    if constexpr (cache_policy == LDG_SWITCH_ON_EVICT_LAST) {                                                          \
+      FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);                       \
+    }                                                                                                                  \
+    else {                                                                                                             \
+      FETCH_FLOAT4_PREFETCH_256B_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);                    \
+    }                                                                                                                  \
   }
 
 #define A_ldg_reg_2_sm(ldg_sm_buffer_index, ldg_reg_buffer_index, loop)                                                \
@@ -3176,17 +3185,18 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
 
   T* C_ptr = &C[(m_block_offset + m_warp_offset + lane_id / 4) * N + n_block_offset + n_warp_offset + lane_id % 4 * 8];
 
-#define ldm_mma_sts_stg(ldm_sm_buffer_index,                                                                           \
-                        ldm_reg_buffer_index,                                                                          \
-                        mma_reg_buffer_index,                                                                          \
-                        sts_sm_base_index,                                                                             \
-                        ldg_k_offset,                                                                                  \
-                        rank,                                                                                          \
-                        ldm_switch,                                                                                    \
-                        mma_switch,                                                                                    \
-                        sts_switch,                                                                                    \
-                        stg_switch,                                                                                    \
-                        ldg_switch)                                                                                    \
+#define ldm_mma_sts_stg_ldg(ldm_sm_buffer_index,                                                                       \
+                            ldm_reg_buffer_index,                                                                      \
+                            mma_reg_buffer_index,                                                                      \
+                            sts_sm_base_index,                                                                         \
+                            ldg_k_offset_x_2,                                                                          \
+                            ldg_k_offset_x_2N,                                                                         \
+                            rank,                                                                                      \
+                            ldm_switch,                                                                                \
+                            mma_switch,                                                                                \
+                            sts_switch,                                                                                \
+                            stg_switch,                                                                                \
+                            ldg_switch)                                                                                \
   {                                                                                                                    \
     /* STS */                                                                                                          \
     constexpr int MxN_GORUP_COUNT = M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP;                                   \
@@ -3204,7 +3214,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
       }                                                                                                                \
     }                                                                                                                  \
     /* MMA */                                                                                                          \
-    if constexpr (mma_switch && rank < M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP) {                              \
+    if constexpr (mma_switch && rank < MxN_GORUP_COUNT) {                                                              \
       constexpr int mg = rank % M_GROUP_COUNT_PER_WARP;                                                                \
       constexpr int ng = rank / M_GROUP_COUNT_PER_WARP;                                                                \
       mma_m16n8k16_row_col(C_mma_reg[mg][ng],                                                                          \
@@ -3233,11 +3243,11 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
             switch (ldg_addr_offset) {                                                                                 \
               case 0:                                                                                                  \
                 A_global_2_ldg_reg(                                                                                    \
-                  A_global_ptr_for_ldg__loop_0__k_0 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                  A_global_ptr_for_ldg__loop_0__k_0 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
                 break;                                                                                                 \
               case 1:                                                                                                  \
                 A_global_2_ldg_reg(                                                                                    \
-                  A_global_ptr_for_ldg__loop_0__k_1 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                  A_global_ptr_for_ldg__loop_0__k_1 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
                 break;                                                                                                 \
               default:                                                                                                 \
                 break;                                                                                                 \
@@ -3247,11 +3257,11 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
             switch (ldg_addr_offset) {                                                                                 \
               case 0:                                                                                                  \
                 A_global_2_ldg_reg(                                                                                    \
-                  A_global_ptr_for_ldg__loop_1__k_0 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                  A_global_ptr_for_ldg__loop_1__k_0 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
                 break;                                                                                                 \
               case 1:                                                                                                  \
                 A_global_2_ldg_reg(                                                                                    \
-                  A_global_ptr_for_ldg__loop_1__k_1 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                  A_global_ptr_for_ldg__loop_1__k_1 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
                 break;                                                                                                 \
               default:                                                                                                 \
                 break;                                                                                                 \
@@ -3261,11 +3271,11 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
             switch (ldg_addr_offset) {                                                                                 \
               case 0:                                                                                                  \
                 A_global_2_ldg_reg(                                                                                    \
-                  A_global_ptr_for_ldg__loop_2__k_0 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                  A_global_ptr_for_ldg__loop_2__k_0 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
                 break;                                                                                                 \
               case 1:                                                                                                  \
                 A_global_2_ldg_reg(                                                                                    \
-                  A_global_ptr_for_ldg__loop_2__k_1 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                  A_global_ptr_for_ldg__loop_2__k_1 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
                 break;                                                                                                 \
               default:                                                                                                 \
                 break;                                                                                                 \
@@ -3275,11 +3285,11 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
             switch (ldg_addr_offset) {                                                                                 \
               case 0:                                                                                                  \
                 A_global_2_ldg_reg(                                                                                    \
-                  A_global_ptr_for_ldg__loop_3__k_0 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                  A_global_ptr_for_ldg__loop_3__k_0 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
                 break;                                                                                                 \
               case 1:                                                                                                  \
                 A_global_2_ldg_reg(                                                                                    \
-                  A_global_ptr_for_ldg__loop_3__k_1 + ldg_k_offset * sizeof(T), ldg_addr_offset, ldg_loop);            \
+                  A_global_ptr_for_ldg__loop_3__k_1 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
                 break;                                                                                                 \
               default:                                                                                                 \
                 break;                                                                                                 \
@@ -3296,11 +3306,11 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
             switch (ldg_addr_offset) {                                                                                 \
               case 0:                                                                                                  \
                 B_global_2_ldg_reg(                                                                                    \
-                  B_global_ptr_for_ldg__loop_0__k_0 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                  B_global_ptr_for_ldg__loop_0__k_0 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
                 break;                                                                                                 \
               case 1:                                                                                                  \
                 B_global_2_ldg_reg(                                                                                    \
-                  B_global_ptr_for_ldg__loop_0__k_1 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                  B_global_ptr_for_ldg__loop_0__k_1 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
                 break;                                                                                                 \
               default:                                                                                                 \
                 break;                                                                                                 \
@@ -3310,11 +3320,11 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
             switch (ldg_addr_offset) {                                                                                 \
               case 0:                                                                                                  \
                 B_global_2_ldg_reg(                                                                                    \
-                  B_global_ptr_for_ldg__loop_1__k_0 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                  B_global_ptr_for_ldg__loop_1__k_0 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
                 break;                                                                                                 \
               case 1:                                                                                                  \
                 B_global_2_ldg_reg(                                                                                    \
-                  B_global_ptr_for_ldg__loop_1__k_1 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                  B_global_ptr_for_ldg__loop_1__k_1 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
                 break;                                                                                                 \
               default:                                                                                                 \
                 break;                                                                                                 \
@@ -3324,11 +3334,11 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
             switch (ldg_addr_offset) {                                                                                 \
               case 0:                                                                                                  \
                 B_global_2_ldg_reg(                                                                                    \
-                  B_global_ptr_for_ldg__loop_2__k_0 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                  B_global_ptr_for_ldg__loop_2__k_0 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
                 break;                                                                                                 \
               case 1:                                                                                                  \
                 B_global_2_ldg_reg(                                                                                    \
-                  B_global_ptr_for_ldg__loop_2__k_1 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                  B_global_ptr_for_ldg__loop_2__k_1 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
                 break;                                                                                                 \
               default:                                                                                                 \
                 break;                                                                                                 \
@@ -3338,11 +3348,11 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
             switch (ldg_addr_offset) {                                                                                 \
               case 0:                                                                                                  \
                 B_global_2_ldg_reg(                                                                                    \
-                  B_global_ptr_for_ldg__loop_3__k_0 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                  B_global_ptr_for_ldg__loop_3__k_0 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
                 break;                                                                                                 \
               case 1:                                                                                                  \
                 B_global_2_ldg_reg(                                                                                    \
-                  B_global_ptr_for_ldg__loop_3__k_1 + ldg_k_offset * N * sizeof(T), ldg_addr_offset, real_ldg_loop);   \
+                  B_global_ptr_for_ldg__loop_3__k_1 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
                 break;                                                                                                 \
               default:                                                                                                 \
                 break;                                                                                                 \
@@ -3354,7 +3364,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
       }                                                                                                                \
     }                                                                                                                  \
     /* STG */                                                                                                          \
-    if constexpr (stg_switch && rank < M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP) {                              \
+    if constexpr (stg_switch && rank < MxN_GORUP_COUNT) {                                                              \
       constexpr int mg = rank % M_GROUP_COUNT_PER_WARP;                                                                \
       constexpr int ng = rank / M_GROUP_COUNT_PER_WARP;                                                                \
       T casted[4]      = {C_mma_reg[mg][ng][0], C_mma_reg[mg][ng][1], C_mma_reg[mg][ng][2], C_mma_reg[mg][ng][3]};     \
@@ -3380,132 +3390,192 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
   }
 
 // FIXME This code is really stupid. Please find a way to optimize it as soon as possible.
-#define alternate_ldm_mma_sts_stg(ldm_sm_buf_index,                                                                    \
-                                  ldm_reg_buf_index,                                                                   \
-                                  mma_reg_buf_index,                                                                   \
-                                  sts_sm_base_index,                                                                   \
-                                  ldg_k_offset,                                                                        \
-                                  ldm_switch,                                                                          \
-                                  mma_switch,                                                                          \
-                                  sts_switch,                                                                          \
-                                  stg_switch,                                                                          \
-                                  ldg_switch)                                                                          \
+#define alternate_ldm_mma_sts_stg_ldg(ldm_sm_buf_index,                                                                \
+                                      ldm_reg_buf_index,                                                               \
+                                      mma_reg_buf_index,                                                               \
+                                      sts_sm_base_index,                                                               \
+                                      ldg_k_offset_x2,                                                                 \
+                                      ldg_k_offset_x2N,                                                                \
+                                      ldm_switch,                                                                      \
+                                      mma_switch,                                                                      \
+                                      sts_switch,                                                                      \
+                                      stg_switch,                                                                      \
+                                      ldg_switch)                                                                      \
   static_assert(M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP <= 32);                                                \
   /* clang-format off */ \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  0, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  1, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  2, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  3, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  4, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  5, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  6, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  7, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  8, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  9, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 10, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 11, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 12, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 13, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 14, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 15, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 16, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 17, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 18, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 19, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 20, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 21, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 22, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 23, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 24, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 25, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 26, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 27, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 28, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 29, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 30, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-  ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 31, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  0, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  1, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  2, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  3, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  4, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  5, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  6, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  7, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  8, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  9, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 10, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 11, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 12, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 13, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 14, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 15, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 16, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 17, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 18, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 19, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 20, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 21, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 22, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 23, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 24, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 25, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 26, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 27, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 28, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 29, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 30, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 31, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);
   /* clang-format on */
 
-  alternate_ldm_mma_sts_stg(0, 0, 0, 0, 0, false, false, false, false, true);
-  alternate_ldm_mma_sts_stg(0, 0, 0, 0, 0, false, false, true, false, false);
+  alternate_ldm_mma_sts_stg_ldg(0, 0, 0, 0, 0, 0, false, false, false, false, LDG_SWITCH_ON_EVICT_LAST);
+  alternate_ldm_mma_sts_stg_ldg(0, 0, 0, 0, 0, 0, false, false, true, false, LDG_SWITCH_OFF);
 
   __syncthreads();
 
-  int LDG_SM_BUFFER_INDEX = 0;
-  int k_loop_offset       = LOOP_TILE_K * 2;
+  int       LDG_SM_BUFFER_INDEX = 0;
+  int       k_loop_offset       = LOOP_TILE_K * 2;
+  int       k_loop_offset_x2    = k_loop_offset * sizeof(T);
+  int       k_loop_offset_x2N   = k_loop_offset_x2 * N;
+  const int Nx2xLOOP_TILE_K     = LOOP_TILE_K * 2 * sizeof(T) * N;
 
-  alternate_ldm_mma_sts_stg(LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0, 0, 0, true, false, false, false, false);
+  alternate_ldm_mma_sts_stg_ldg(
+    LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0, 0, 0, 0, true, false, false, false, LDG_SWITCH_OFF);
 
   {
-    alternate_ldm_mma_sts_stg(LDG_SM_BUFFER_INDEX + 1,
-                              MMA_REG_BUFFER_INDEX_1,
-                              MMA_REG_BUFFER_INDEX_0,
-                              (LDG_SM_BUFFER_INDEX ^ 2),
-                              k_loop_offset,
-                              true,
-                              true,
-                              true,
-                              false,
-                              true);
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  (LDG_SM_BUFFER_INDEX ^ 2),
+                                  k_loop_offset_x2,
+                                  k_loop_offset_x2N,
+                                  true,
+                                  true,
+                                  true,
+                                  false,
+                                  LDG_SWITCH_ON_EVICT_LAST);
 
     LDG_SM_BUFFER_INDEX ^= 2;
     k_loop_offset += LOOP_TILE_K * 2;
+    k_loop_offset_x2 += LOOP_TILE_K * 2 * sizeof(T);
+    k_loop_offset_x2N += Nx2xLOOP_TILE_K;
 
     __syncthreads();
 
-    alternate_ldm_mma_sts_stg(
-      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, k_loop_offset, true, true, false, false, true);
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  k_loop_offset_x2,
+                                  k_loop_offset_x2N,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_ON_EVICT_NORMAL);
   }
 
   while (k_loop_offset + LOOP_TILE_K * 2 < K) {
-    alternate_ldm_mma_sts_stg(LDG_SM_BUFFER_INDEX + 1,
-                              MMA_REG_BUFFER_INDEX_1,
-                              MMA_REG_BUFFER_INDEX_0,
-                              (LDG_SM_BUFFER_INDEX ^ 2),
-                              0,
-                              true,
-                              true,
-                              true,
-                              false,
-                              false);
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  (LDG_SM_BUFFER_INDEX ^ 2),
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  true,
+                                  false,
+                                  LDG_SWITCH_OFF);
 
     LDG_SM_BUFFER_INDEX ^= 2;
     k_loop_offset += LOOP_TILE_K * 2;
+    k_loop_offset_x2 += LOOP_TILE_K * 2 * sizeof(T);
+    k_loop_offset_x2N += Nx2xLOOP_TILE_K;
 
     __syncthreads();
 
-    alternate_ldm_mma_sts_stg(0, 0, 0, 0, k_loop_offset, false, false, false, false, true);
+    alternate_ldm_mma_sts_stg_ldg(
+      0, 0, 0, 0, k_loop_offset_x2, k_loop_offset_x2N, false, false, false, false, LDG_SWITCH_ON_EVICT_NORMAL);
 
-    alternate_ldm_mma_sts_stg(
-      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, 0, true, true, false, false, false);
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_OFF);
   }
 
   {
-    alternate_ldm_mma_sts_stg(LDG_SM_BUFFER_INDEX + 1,
-                              MMA_REG_BUFFER_INDEX_1,
-                              MMA_REG_BUFFER_INDEX_0,
-                              (LDG_SM_BUFFER_INDEX ^ 2),
-                              0,
-                              true,
-                              true,
-                              true,
-                              false,
-                              false);
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  (LDG_SM_BUFFER_INDEX ^ 2),
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  true,
+                                  false,
+                                  LDG_SWITCH_OFF);
     LDG_SM_BUFFER_INDEX ^= 2;
     k_loop_offset += LOOP_TILE_K * 2;
+    k_loop_offset_x2 += LOOP_TILE_K * 2 * sizeof(T);
+    k_loop_offset_x2N += Nx2xLOOP_TILE_K;
 
     __syncthreads();
 
-    alternate_ldm_mma_sts_stg(
-      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, 0, true, true, false, false, false);
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_OFF);
   }
 
   {
-    alternate_ldm_mma_sts_stg(
-      LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, 0, 0, true, true, false, false, false);
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  0,
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_OFF);
 
-    alternate_ldm_mma_sts_stg(
-      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, 0, false, true, false, true, false);
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  0,
+                                  0,
+                                  false,
+                                  true,
+                                  false,
+                                  true,
+                                  LDG_SWITCH_OFF);
   }
 
 #undef A_global_2_ldg_reg
@@ -3514,8 +3584,1993 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
 #undef B_ldg_reg_2_sm
 #undef sm_2_A_mma_reg
 #undef sm_2_B_mma_reg
-#undef ldm_mma_sts_stg
-#undef alternate_ldm_mma_sts_stg
+#undef ldm_mma_sts_stg_ldg
+#undef alternate_ldm_mma_sts_stg_ldg
+}
+
+template<typename T, int BLOCK_TILE_M, int BLOCK_TILE_N, int WARP_TILE_M, int WARP_TILE_N>
+__global__ void
+fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reduce_IMAD_AND_LEA__reduce_MIO(
+  const T* A, const T* B, T* C, int M, int N, int K)
+{
+  // if(threadIdx.x == 0) {
+  //   printf("%03d %03d %03d\n", blockIdx.x, blockIdx.y, get_smid());
+  // }
+  constexpr int WARP_COUNT   = BLOCK_TILE_M / WARP_TILE_M * BLOCK_TILE_N / WARP_TILE_N;
+  constexpr int THREAD_COUNT = WARP_COUNT * 32;
+
+  constexpr int LOOP_TILE_K         = 16;
+  constexpr int LDG_SM_BUFFER_SIZE  = 4;
+  constexpr int LDG_REG_BUFFER_SIZE = 2;
+
+  constexpr int A_sm_dim0 = LDG_SM_BUFFER_SIZE;
+  constexpr int A_sm_dim1 = 2;
+  constexpr int A_sm_dim2 = BLOCK_TILE_M;
+  constexpr int A_sm_dim3 = LOOP_TILE_K / 2;
+  constexpr int B_sm_dim0 = LDG_SM_BUFFER_SIZE;
+  constexpr int B_sm_dim1 = LOOP_TILE_K / 8;
+  constexpr int B_sm_dim2 = BLOCK_TILE_N / 8;
+  constexpr int B_sm_dim3 = 64;
+
+  // The 64 elements of type T in each 8x8 matrix are stored consecutively in a single layer of shared memory.
+  __shared__ union {
+    struct {
+      T A_sm[A_sm_dim0 * A_sm_dim1 * A_sm_dim2 * A_sm_dim3];
+      T B_sm[B_sm_dim0 * B_sm_dim1 * B_sm_dim2 * B_sm_dim3];
+    } mma;
+    static_assert(WARP_TILE_N % 16 == 0);
+    T result[WARP_COUNT][WARP_TILE_N / 16][WARP_TILE_M][16];
+  } data;
+
+  static_assert(BLOCK_TILE_M * LOOP_TILE_K % THREAD_COUNT == 0);
+  static_assert(BLOCK_TILE_M * LOOP_TILE_K / THREAD_COUNT % 8 == 0);
+  constexpr int A_LDG_COUNT_PER_THREAD = BLOCK_TILE_M * LOOP_TILE_K / THREAD_COUNT;
+  constexpr int A_LDG_LOOP_COUNT       = A_LDG_COUNT_PER_THREAD / 8;
+  // clang-format off
+  // This is the thread layout of the same warp that loads matrix A, where each thread reads M1xK8 elements of type T at a
+  // loop iteration.
+  // T0  T16
+  // T1  T17
+  // T2  T18
+  // ... ...
+  // T14 T30
+  // T15 T31
+  // clang-format on
+  float A_ldg_reg[LDG_REG_BUFFER_SIZE][A_LDG_LOOP_COUNT][4];
+
+  static_assert(BLOCK_TILE_N * LOOP_TILE_K % THREAD_COUNT == 0);
+  static_assert(BLOCK_TILE_N * LOOP_TILE_K / THREAD_COUNT % 8 == 0);
+  constexpr int B_LDG_COUNT_PER_THREAD = BLOCK_TILE_N * LOOP_TILE_K / THREAD_COUNT;
+  constexpr int B_LDG_LOOP_COUNT       = B_LDG_COUNT_PER_THREAD / 8;
+  // clang-format off
+  // This is the thread layout of the same warp that loads matrix B, where each thread reads K1xN8 elements of type T at a
+  // loop iteration.
+  // T0  T16
+  // T1  T17
+  // T2  T18
+  // ... ...
+  // T14 T30
+  // T15 T31
+  // clang-format on
+  float B_ldg_reg[LDG_REG_BUFFER_SIZE][B_LDG_LOOP_COUNT][4];
+
+  const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
+  const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
+
+  const int warp_id                 = threadIdx.x / 32;
+  const int lane_id                 = threadIdx.x % 32;
+  const int transposed_lane_id_mask = (lane_id / 8 == 0 || lane_id / 8 == 3) ? 0x00 : 0x18;
+  const int transposed_lane_id      = lane_id ^ transposed_lane_id_mask;
+
+  constexpr int M_MMA_WARP_COUNT       = BLOCK_TILE_M / WARP_TILE_M;
+  constexpr int M_GROUP_COUNT_PER_WARP = WARP_TILE_M / 8;
+  constexpr int N_GROUP_COUNT_PER_WARP = WARP_TILE_N / 16;
+
+  constexpr int MMA_REG_BUFFER_SIZE    = 2;
+  constexpr int MMA_REG_BUFFER_INDEX_0 = 0;
+  constexpr int MMA_REG_BUFFER_INDEX_1 = 1;
+  T             A_mma_reg[MMA_REG_BUFFER_SIZE][M_GROUP_COUNT_PER_WARP][4];
+  T             B_mma_reg[MMA_REG_BUFFER_SIZE][N_GROUP_COUNT_PER_WARP][8];
+  float         C_mma_reg[M_GROUP_COUNT_PER_WARP][N_GROUP_COUNT_PER_WARP][4] = {0};
+  static_assert(N_GROUP_COUNT_PER_WARP % 2 == 0);
+  union _2x4_or_1x8 {
+    T _2x4[2][4];
+    T _1x8[8];
+  };
+  _2x4_or_1x8 C_transposed[M_GROUP_COUNT_PER_WARP][N_GROUP_COUNT_PER_WARP / 2];
+
+  const int m_warp_offset = warp_id % M_MMA_WARP_COUNT * WARP_TILE_M;
+  const int n_warp_offset = warp_id / M_MMA_WARP_COUNT * WARP_TILE_N;
+
+  const int A_ldg_reg_2_A_sm_partial_offset =
+    lane_id / 16 * A_sm_dim2 * A_sm_dim3 + (warp_id * 16 + lane_id % 16) * A_sm_dim3;
+
+  const int B_ldg_reg_2_B_sm_partial_offset =
+    (lane_id % 16) / 8 * B_sm_dim2 * B_sm_dim3 + (lane_id % 16) % 8 * 8 + (warp_id * 2 + lane_id / 16) * B_sm_dim3;
+
+  const int A_global_partial_offset = (m_block_offset + warp_id * 16 + lane_id % 16) * K + lane_id / 16 * 8;
+  const int B_global_partial_offset = lane_id % 16 * N + n_block_offset + warp_id * 16 + lane_id / 16 * 8;
+
+  const T* A_global_ptr_for_ldg = &A[A_global_partial_offset];
+  const T* B_global_ptr_for_ldg = &B[B_global_partial_offset];
+
+  static_assert(A_LDG_LOOP_COUNT <= 4);
+  static_assert(B_LDG_LOOP_COUNT <= 4);
+  static_assert(LDG_REG_BUFFER_SIZE <= 2);
+  const uint64_t A_global_ptr_for_ldg__loop_0__k_0 = (uint64_t)(A_global_ptr_for_ldg + 0 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_1__k_0 = (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_2__k_0 = (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_3__k_0 = (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_0__k_1 = (uint64_t)(A_global_ptr_for_ldg + 0 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_1__k_1 = (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_2__k_1 = (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_3__k_1 = (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t B_global_ptr_for_ldg__loop_0__k_0 = (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_1__k_0 = (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_2__k_0 = (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_3__k_0 = (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_0__k_1 = (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_1__k_1 = (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_2__k_1 = (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_3__k_1 = (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+
+  const T* A_sm_ptr_for_ldg = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset];
+  const T* B_sm_ptr_for_ldg = &data.mma.B_sm[B_ldg_reg_2_B_sm_partial_offset];
+
+  const int A_sm_2_A_mma_reg_partial_offset =
+    lane_id % 16 / 8 * A_sm_dim2 * A_sm_dim3 + (m_warp_offset + lane_id % 8) * A_sm_dim3;
+
+  const int B_sm_2_B_mma_reg_partial_offset = transposed_lane_id % 16 / 8 * B_sm_dim2 * B_sm_dim3
+                                              + (n_warp_offset + transposed_lane_id / 16 * 8) / 8 * B_sm_dim3
+                                              + transposed_lane_id % 8 * 8;
+
+  const T* A_sm_ptr_for_mma = &data.mma.A_sm[A_sm_2_A_mma_reg_partial_offset + lane_id / 16 * 8 * A_sm_dim3];
+  const T* B_sm_ptr_for_mma = &data.mma.B_sm[B_sm_2_B_mma_reg_partial_offset];
+
+  enum {
+    LDG_SWITCH_OFF             = 0,
+    LDG_SWITCH_ON_EVICT_NORMAL = 1,
+    LDG_SWITCH_ON_EVICT_LAST   = 2,
+  };
+
+#define A_global_2_ldg_reg(A_global_ptr, ldg_reg_buffer_index, loop, cache_policy)                                     \
+  {                                                                                                                    \
+    /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */                                             \
+    /* const int k = lane_id / 16 * 8; */                                                                              \
+    if constexpr (cache_policy == LDG_SWITCH_ON_EVICT_LAST) {                                                          \
+      FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);                       \
+    }                                                                                                                  \
+    else {                                                                                                             \
+      FETCH_FLOAT4_PREFETCH_256B_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);                    \
+    }                                                                                                                  \
+  }
+
+#define B_global_2_ldg_reg(B_global_ptr, ldg_reg_buffer_index, loop, cache_policy)                                     \
+  {                                                                                                                    \
+    /* const int k = lane_id % 16;                                           */                                        \
+    /* const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;  */                                        \
+    if constexpr (cache_policy == LDG_SWITCH_ON_EVICT_LAST) {                                                          \
+      FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);                       \
+    }                                                                                                                  \
+    else {                                                                                                             \
+      FETCH_FLOAT4_PREFETCH_256B_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);                    \
+    }                                                                                                                  \
+  }
+
+#define A_ldg_reg_2_sm(ldg_sm_buffer_index, ldg_reg_buffer_index, loop)                                                \
+  {                                                                                                                    \
+    /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */                                             \
+    /* const int k = lane_id / 16 * 8;  */                                                                             \
+    STORE_FLOAT4_WITH_PTR(A_sm_ptr_for_ldg + loop * WARP_COUNT * 16 * A_sm_dim3                                        \
+                            + (ldg_sm_buffer_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3,                               \
+                          &A_ldg_reg[ldg_reg_buffer_index][loop][0]);                                                  \
+  }
+
+#define B_ldg_reg_2_sm(ldg_sm_buffer_index, ldg_reg_buffer_index, loop)                                                \
+  {                                                                                                                    \
+    /*const int k = lane_id % 16; */                                                                                   \
+    /*const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;*/                                           \
+    STORE_FLOAT4_WITH_PTR(B_sm_ptr_for_ldg + (loop) * WARP_COUNT * 2 * B_sm_dim3                                       \
+                            + (ldg_sm_buffer_index) * B_sm_dim1 * B_sm_dim2 * B_sm_dim3,                               \
+                          &B_ldg_reg[ldg_reg_buffer_index][loop][0]);                                                  \
+  }
+
+#define sm_2_A_mma_reg(ldg_sm_buffer_index, mma_reg_buffer_index, group)                                               \
+  if constexpr (M_GROUP_COUNT_PER_WARP == 1) {                                                                         \
+    /* for (int group = 0; group < M_GROUP_COUNT_PER_WARP; ++group) */ {                                               \
+      uint32_t src = __cvta_generic_to_shared(A_sm_ptr_for_mma + (group) * 8 * A_sm_dim3                               \
+                                              + (ldg_sm_buffer_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3);            \
+      asm volatile("ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];"                                          \
+                   : "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][0]),                                     \
+                     "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][2])                                      \
+                   : "r"(src));                                                                                        \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  else if constexpr (M_GROUP_COUNT_PER_WARP % 2 == 0) {                                                                \
+    /*for (int group = 0; group < M_GROUP_COUNT_PER_WARP; group += 2) */ {                                             \
+      uint32_t src = __cvta_generic_to_shared(A_sm_ptr_for_mma + (group) * 8 * A_sm_dim3                               \
+                                              + (ldg_sm_buffer_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3);            \
+      asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];"                                  \
+                   : "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][0]),                                     \
+                     "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][2]),                                     \
+                     "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group + 1][0]),                                 \
+                     "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group + 1][2])                                  \
+                   : "r"(src));                                                                                        \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  else {                                                                                                               \
+    static_assert(M_GROUP_COUNT_PER_WARP == 1 || M_GROUP_COUNT_PER_WARP % 2 == 0);                                     \
+  }
+
+#define sm_2_B_mma_reg(ldg_sm_buffer_index, mma_reg_buffer_index, group)                                               \
+  /* for (int group = 0; group < N_GROUP_COUNT_PER_WARP; ++group) */ {                                                 \
+    uint32_t src = __cvta_generic_to_shared(B_sm_ptr_for_mma + (group) * 2 * B_sm_dim3                                 \
+                                            + (ldg_sm_buffer_index) * B_sm_dim1 * B_sm_dim2 * B_sm_dim3);              \
+    asm volatile("ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0, %1, %2, %3}, [%4];"                              \
+                 : "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][0]),                                       \
+                   "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][2]),                                       \
+                   "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][4]),                                       \
+                   "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][6])                                        \
+                 : "r"(src));                                                                                          \
+  }
+
+  T* C_ptr = &C[(m_block_offset + m_warp_offset + lane_id / 4) * N + n_block_offset + n_warp_offset + lane_id % 4 * 8];
+
+#define ldm_mma_sts_stg_ldg(ldm_sm_buffer_index,                                                                       \
+                            ldm_reg_buffer_index,                                                                      \
+                            mma_reg_buffer_index,                                                                      \
+                            sts_sm_base_index,                                                                         \
+                            ldg_k_offset_x_2,                                                                          \
+                            ldg_k_offset_x_2N,                                                                         \
+                            rank,                                                                                      \
+                            ldm_switch,                                                                                \
+                            mma_switch,                                                                                \
+                            sts_switch,                                                                                \
+                            stg_switch,                                                                                \
+                            ldg_switch)                                                                                \
+  {                                                                                                                    \
+    /* STS */                                                                                                          \
+    constexpr int MxN_GORUP_COUNT = M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP;                                   \
+    constexpr int STS_COUNT       = LDG_REG_BUFFER_SIZE * (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                       \
+    static_assert(STS_COUNT <= MxN_GORUP_COUNT);                                                                       \
+    if constexpr (sts_switch && MxN_GORUP_COUNT - STS_COUNT <= rank && rank < MxN_GORUP_COUNT) {                       \
+      constexpr int sts_rank        = rank - (MxN_GORUP_COUNT - STS_COUNT);                                            \
+      constexpr int sts_addr_offset = sts_rank / (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                \
+      constexpr int sts_loop        = sts_rank % (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                \
+      if constexpr (sts_loop < A_LDG_LOOP_COUNT) {                                                                     \
+        A_ldg_reg_2_sm(sts_sm_base_index + sts_addr_offset, sts_addr_offset, sts_loop);                                \
+      }                                                                                                                \
+      if constexpr (A_LDG_LOOP_COUNT <= sts_loop) {                                                                    \
+        B_ldg_reg_2_sm(sts_sm_base_index + sts_addr_offset, sts_addr_offset, sts_loop - A_LDG_LOOP_COUNT);             \
+      }                                                                                                                \
+    }                                                                                                                  \
+    /* MMA */                                                                                                          \
+    if constexpr (mma_switch && rank < MxN_GORUP_COUNT) {                                                              \
+      constexpr int mg = rank % M_GROUP_COUNT_PER_WARP;                                                                \
+      constexpr int ng = rank / M_GROUP_COUNT_PER_WARP;                                                                \
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],                                                                          \
+                           B_mma_reg[mma_reg_buffer_index][ng],                                                        \
+                           A_mma_reg[mma_reg_buffer_index][mg],                                                        \
+                           C_mma_reg[mg][ng]);                                                                         \
+    }                                                                                                                  \
+    /* LDM */                                                                                                          \
+    static_assert(M_GROUP_COUNT_PER_WARP == 1 || M_GROUP_COUNT_PER_WARP % 2 == 0);                                     \
+    constexpr int A_LDM_COUNT = (M_GROUP_COUNT_PER_WARP + 1) / 2;                                                      \
+    constexpr int B_LDM_COUNT = N_GROUP_COUNT_PER_WARP;                                                                \
+    constexpr int LDM_COUNT   = A_LDM_COUNT + B_LDM_COUNT;                                                             \
+    static_assert(LDM_COUNT < MxN_GORUP_COUNT);                                                                        \
+    constexpr int LDM_STRIDE = (MxN_GORUP_COUNT - 1) / (LDM_COUNT - 1);                                                \
+    static_assert((LDM_COUNT - 1) * LDM_STRIDE + 1 <= MxN_GORUP_COUNT);                                                \
+    if constexpr (ldm_switch && rank < (LDM_COUNT - 1) * LDM_STRIDE + 1) {                                             \
+      constexpr int real_rank = rank / LDM_STRIDE;                                                                     \
+      if constexpr (ldm_switch && real_rank < A_LDM_COUNT) {                                                           \
+        sm_2_A_mma_reg(ldm_sm_buffer_index, ldm_reg_buffer_index, real_rank * 2);                                      \
+      }                                                                                                                \
+      if constexpr (ldm_switch && A_LDM_COUNT <= real_rank && real_rank < LDM_COUNT) {                                 \
+        sm_2_B_mma_reg(ldm_sm_buffer_index, ldm_reg_buffer_index, real_rank - A_LDM_COUNT);                            \
+      }                                                                                                                \
+    }                                                                                                                  \
+    /* LDG */                                                                                                          \
+    if constexpr (ldg_switch && rank < LDG_REG_BUFFER_SIZE * (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT)) {                  \
+      constexpr int ldg_addr_offset = rank / (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                    \
+      constexpr int ldg_loop        = rank % (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                    \
+      static_assert(ldg_addr_offset <= 2);                                                                             \
+      if constexpr (ldg_loop < A_LDG_LOOP_COUNT) {                                                                     \
+        switch (ldg_loop) {                                                                                            \
+          case 0:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_0__k_0 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_0__k_1 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 1:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_1__k_0 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_1__k_1 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 2:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_2__k_0 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_2__k_1 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 3:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_3__k_0 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_3__k_1 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          default:                                                                                                     \
+            break;                                                                                                     \
+        }                                                                                                              \
+      }                                                                                                                \
+      if constexpr (A_LDG_LOOP_COUNT <= ldg_loop) {                                                                    \
+        constexpr int real_ldg_loop = ldg_loop - A_LDG_LOOP_COUNT;                                                     \
+        switch (real_ldg_loop) {                                                                                       \
+          case 0:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_0__k_0 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_0__k_1 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 1:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_1__k_0 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_1__k_1 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 2:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_2__k_0 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_2__k_1 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 3:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_3__k_0 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_3__k_1 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          default:                                                                                                     \
+            break;                                                                                                     \
+        }                                                                                                              \
+      }                                                                                                                \
+    }                                                                                                                  \
+    /* STG */                                                                                                          \
+    if constexpr (stg_switch && rank < MxN_GORUP_COUNT) {                                                              \
+      constexpr int mg = rank % M_GROUP_COUNT_PER_WARP;                                                                \
+      constexpr int ng = rank / M_GROUP_COUNT_PER_WARP;                                                                \
+      T casted[4]      = {C_mma_reg[mg][ng][0], C_mma_reg[mg][ng][1], C_mma_reg[mg][ng][2], C_mma_reg[mg][ng][3]};     \
+      asm volatile("movmatrix.sync.aligned.m8n8.trans.b16 %0, %1;\n"                                                   \
+                   : "=r"(*(uint32_t*)&C_transposed[mg][ng / 2]._2x4[ng % 2][0])                                       \
+                   : "r"(*(uint32_t*)&casted[0]));                                                                     \
+      asm volatile("movmatrix.sync.aligned.m8n8.trans.b16 %0, %1;\n"                                                   \
+                   : "=r"(*(uint32_t*)&C_transposed[mg][ng / 2]._2x4[ng % 2][2])                                       \
+                   : "r"(*(uint32_t*)&casted[2]));                                                                     \
+      shfl_23_and_01(C_transposed[mg][ng / 2]._2x4[ng % 2], 0x1, lane_id);                                             \
+      if constexpr ((ng + 1) % 2 == 0) {                                                                               \
+        shfl_4567_and_0123(C_transposed[mg][ng / 2]._1x8, 0x2, lane_id);                                               \
+        asm volatile("st.global.wt.v4.f32 [%0], {%1, %2, %3, %4};"                                                     \
+                     :                                                                                                 \
+                     : "l"(C_ptr + mg * 8 * N + (ng - 1) * 16),                                                        \
+                       "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[0]),                                          \
+                       "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[2]),                                          \
+                       "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[4]),                                          \
+                       "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[6])                                           \
+                     : "memory");                                                                                      \
+      }                                                                                                                \
+    }                                                                                                                  \
+  }
+
+// FIXME This code is really stupid. Please find a way to optimize it as soon as possible.
+#define alternate_ldm_mma_sts_stg_ldg(ldm_sm_buf_index,                                                                \
+                                      ldm_reg_buf_index,                                                               \
+                                      mma_reg_buf_index,                                                               \
+                                      sts_sm_base_index,                                                               \
+                                      ldg_k_offset_x2,                                                                 \
+                                      ldg_k_offset_x2N,                                                                \
+                                      ldm_switch,                                                                      \
+                                      mma_switch,                                                                      \
+                                      sts_switch,                                                                      \
+                                      stg_switch,                                                                      \
+                                      ldg_switch)                                                                      \
+  static_assert(M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP <= 32);                                                \
+  /* clang-format off */ \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  0, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  1, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  2, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  3, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  4, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  5, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  6, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  7, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  8, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  9, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 10, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 11, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 12, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 13, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 14, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 15, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 16, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 17, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 18, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 19, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 20, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 21, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 22, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 23, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 24, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 25, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 26, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 27, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 28, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 29, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 30, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 31, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);
+  /* clang-format on */
+
+  alternate_ldm_mma_sts_stg_ldg(0, 0, 0, 0, 0, 0, false, false, false, false, LDG_SWITCH_ON_EVICT_LAST);
+  alternate_ldm_mma_sts_stg_ldg(0, 0, 0, 0, 0, 0, false, false, true, false, LDG_SWITCH_OFF);
+
+  __syncthreads();
+
+  int       LDG_SM_BUFFER_INDEX = 0;
+  int       k_loop_offset       = LOOP_TILE_K * 2;
+  int       k_loop_offset_x2    = k_loop_offset * sizeof(T);
+  int       k_loop_offset_x2N   = k_loop_offset_x2 * N;
+  const int Nx2xLOOP_TILE_K     = LOOP_TILE_K * 2 * sizeof(T) * N;
+
+  alternate_ldm_mma_sts_stg_ldg(
+    LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0, 0, 0, 0, true, false, false, false, LDG_SWITCH_OFF);
+
+  {
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  (LDG_SM_BUFFER_INDEX ^ 2),
+                                  k_loop_offset_x2,
+                                  k_loop_offset_x2N,
+                                  true,
+                                  true,
+                                  true,
+                                  false,
+                                  LDG_SWITCH_ON_EVICT_LAST);
+
+    LDG_SM_BUFFER_INDEX ^= 2;
+    k_loop_offset += LOOP_TILE_K * 2;
+    k_loop_offset_x2 += LOOP_TILE_K * 2 * sizeof(T);
+    k_loop_offset_x2N += Nx2xLOOP_TILE_K;
+
+    __syncthreads();
+
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  k_loop_offset_x2,
+                                  k_loop_offset_x2N,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_ON_EVICT_NORMAL);
+  }
+
+  while (k_loop_offset + LOOP_TILE_K * 2 < K) {
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  (LDG_SM_BUFFER_INDEX ^ 2),
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  true,
+                                  false,
+                                  LDG_SWITCH_OFF);
+
+    LDG_SM_BUFFER_INDEX ^= 2;
+    k_loop_offset += LOOP_TILE_K * 2;
+    k_loop_offset_x2 += LOOP_TILE_K * 2 * sizeof(T);
+    k_loop_offset_x2N += Nx2xLOOP_TILE_K;
+
+    __syncthreads();
+
+    alternate_ldm_mma_sts_stg_ldg(
+      0, 0, 0, 0, k_loop_offset_x2, k_loop_offset_x2N, false, false, false, false, LDG_SWITCH_ON_EVICT_NORMAL);
+
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_OFF);
+  }
+
+  {
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  (LDG_SM_BUFFER_INDEX ^ 2),
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  true,
+                                  false,
+                                  LDG_SWITCH_OFF);
+    LDG_SM_BUFFER_INDEX ^= 2;
+    k_loop_offset += LOOP_TILE_K * 2;
+    k_loop_offset_x2 += LOOP_TILE_K * 2 * sizeof(T);
+    k_loop_offset_x2N += Nx2xLOOP_TILE_K;
+
+    __syncthreads();
+
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_OFF);
+  }
+
+  {
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  0,
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_OFF);
+
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  0,
+                                  0,
+                                  false,
+                                  true,
+                                  false,
+                                  true,
+                                  LDG_SWITCH_OFF);
+  }
+
+#undef A_global_2_ldg_reg
+#undef A_ldg_reg_2_sm
+#undef B_global_2_ldg_reg
+#undef B_ldg_reg_2_sm
+#undef sm_2_A_mma_reg
+#undef sm_2_B_mma_reg
+#undef ldm_mma_sts_stg_ldg
+#undef alternate_ldm_mma_sts_stg_ldg
+}
+
+template<typename T, int BLOCK_TILE_M, int BLOCK_TILE_N, int WARP_TILE_M, int WARP_TILE_N>
+__global__ void
+fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reduce_IMAD_AND_LEA__reduce_MIO__opt_BAR(
+  const T* A, const T* B, T* C, int M, int N, int K)
+{
+  // if(threadIdx.x == 0) {
+  //   printf("%03d %03d %03d\n", blockIdx.x, blockIdx.y, get_smid());
+  // }
+  constexpr int WARP_COUNT   = BLOCK_TILE_M / WARP_TILE_M * BLOCK_TILE_N / WARP_TILE_N;
+  constexpr int THREAD_COUNT = WARP_COUNT * 32;
+
+  constexpr int LOOP_TILE_K         = 16;
+  constexpr int LDG_SM_BUFFER_SIZE  = 4;
+  constexpr int LDG_REG_BUFFER_SIZE = 2;
+
+  constexpr int A_sm_dim0 = LDG_SM_BUFFER_SIZE;
+  constexpr int A_sm_dim1 = 2;
+  constexpr int A_sm_dim2 = BLOCK_TILE_M;
+  constexpr int A_sm_dim3 = LOOP_TILE_K / 2;
+  constexpr int B_sm_dim0 = LDG_SM_BUFFER_SIZE;
+  constexpr int B_sm_dim1 = LOOP_TILE_K / 8;
+  constexpr int B_sm_dim2 = BLOCK_TILE_N / 8;
+  constexpr int B_sm_dim3 = 64;
+
+  // The 64 elements of type T in each 8x8 matrix are stored consecutively in a single layer of shared memory.
+  __shared__ union {
+    struct {
+      T A_sm[A_sm_dim0 * A_sm_dim1 * A_sm_dim2 * A_sm_dim3];
+      T B_sm[B_sm_dim0 * B_sm_dim1 * B_sm_dim2 * B_sm_dim3];
+    } mma;
+    static_assert(WARP_TILE_N % 16 == 0);
+    T result[WARP_COUNT][WARP_TILE_N / 16][WARP_TILE_M][16];
+  } data;
+
+  static_assert(BLOCK_TILE_M * LOOP_TILE_K % THREAD_COUNT == 0);
+  static_assert(BLOCK_TILE_M * LOOP_TILE_K / THREAD_COUNT % 8 == 0);
+  constexpr int A_LDG_COUNT_PER_THREAD = BLOCK_TILE_M * LOOP_TILE_K / THREAD_COUNT;
+  constexpr int A_LDG_LOOP_COUNT       = A_LDG_COUNT_PER_THREAD / 8;
+  // clang-format off
+  // This is the thread layout of the same warp that loads matrix A, where each thread reads M1xK8 elements of type T at a
+  // loop iteration.
+  // T0  T16
+  // T1  T17
+  // T2  T18
+  // ... ...
+  // T14 T30
+  // T15 T31
+  // clang-format on
+  float A_ldg_reg[LDG_REG_BUFFER_SIZE][A_LDG_LOOP_COUNT][4];
+
+  static_assert(BLOCK_TILE_N * LOOP_TILE_K % THREAD_COUNT == 0);
+  static_assert(BLOCK_TILE_N * LOOP_TILE_K / THREAD_COUNT % 8 == 0);
+  constexpr int B_LDG_COUNT_PER_THREAD = BLOCK_TILE_N * LOOP_TILE_K / THREAD_COUNT;
+  constexpr int B_LDG_LOOP_COUNT       = B_LDG_COUNT_PER_THREAD / 8;
+  // clang-format off
+  // This is the thread layout of the same warp that loads matrix B, where each thread reads K1xN8 elements of type T at a
+  // loop iteration.
+  // T0  T16
+  // T1  T17
+  // T2  T18
+  // ... ...
+  // T14 T30
+  // T15 T31
+  // clang-format on
+  float B_ldg_reg[LDG_REG_BUFFER_SIZE][B_LDG_LOOP_COUNT][4];
+
+  const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
+  const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
+
+  const int warp_id                 = threadIdx.x / 32;
+  const int lane_id                 = threadIdx.x % 32;
+  const int transposed_lane_id_mask = (lane_id / 8 == 0 || lane_id / 8 == 3) ? 0x00 : 0x18;
+  const int transposed_lane_id      = lane_id ^ transposed_lane_id_mask;
+
+  constexpr int M_MMA_WARP_COUNT       = BLOCK_TILE_M / WARP_TILE_M;
+  constexpr int M_GROUP_COUNT_PER_WARP = WARP_TILE_M / 8;
+  constexpr int N_GROUP_COUNT_PER_WARP = WARP_TILE_N / 16;
+
+  constexpr int MMA_REG_BUFFER_SIZE    = 2;
+  constexpr int MMA_REG_BUFFER_INDEX_0 = 0;
+  constexpr int MMA_REG_BUFFER_INDEX_1 = 1;
+  T             A_mma_reg[MMA_REG_BUFFER_SIZE][M_GROUP_COUNT_PER_WARP][4];
+  T             B_mma_reg[MMA_REG_BUFFER_SIZE][N_GROUP_COUNT_PER_WARP][8];
+  float         C_mma_reg[M_GROUP_COUNT_PER_WARP][N_GROUP_COUNT_PER_WARP][4] = {0};
+  static_assert(N_GROUP_COUNT_PER_WARP % 2 == 0);
+  union _2x4_or_1x8 {
+    T _2x4[2][4];
+    T _1x8[8];
+  };
+  _2x4_or_1x8 C_transposed[M_GROUP_COUNT_PER_WARP][N_GROUP_COUNT_PER_WARP / 2];
+
+  const int m_warp_offset = warp_id % M_MMA_WARP_COUNT * WARP_TILE_M;
+  const int n_warp_offset = warp_id / M_MMA_WARP_COUNT * WARP_TILE_N;
+
+  const int A_ldg_reg_2_A_sm_partial_offset =
+    lane_id / 16 * A_sm_dim2 * A_sm_dim3 + (warp_id * 16 + lane_id % 16) * A_sm_dim3;
+
+  const int B_ldg_reg_2_B_sm_partial_offset =
+    (lane_id % 16) / 8 * B_sm_dim2 * B_sm_dim3 + (lane_id % 16) % 8 * 8 + (warp_id * 2 + lane_id / 16) * B_sm_dim3;
+
+  const int A_global_partial_offset = (m_block_offset + warp_id * 16 + lane_id % 16) * K + lane_id / 16 * 8;
+  const int B_global_partial_offset = lane_id % 16 * N + n_block_offset + warp_id * 16 + lane_id / 16 * 8;
+
+  const T* A_global_ptr_for_ldg = &A[A_global_partial_offset];
+  const T* B_global_ptr_for_ldg = &B[B_global_partial_offset];
+
+  static_assert(A_LDG_LOOP_COUNT <= 4);
+  static_assert(B_LDG_LOOP_COUNT <= 4);
+  static_assert(LDG_REG_BUFFER_SIZE <= 2);
+  const uint64_t A_global_ptr_for_ldg__loop_0__k_0 = (uint64_t)(A_global_ptr_for_ldg + 0 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_1__k_0 = (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_2__k_0 = (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_3__k_0 = (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_0__k_1 = (uint64_t)(A_global_ptr_for_ldg + 0 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_1__k_1 = (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_2__k_1 = (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_3__k_1 = (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t B_global_ptr_for_ldg__loop_0__k_0 = (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_1__k_0 = (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_2__k_0 = (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_3__k_0 = (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_0__k_1 = (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_1__k_1 = (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_2__k_1 = (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_3__k_1 = (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+
+  const T* A_sm_ptr_for_ldg = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset];
+  const T* B_sm_ptr_for_ldg = &data.mma.B_sm[B_ldg_reg_2_B_sm_partial_offset];
+
+  const int A_sm_2_A_mma_reg_partial_offset =
+    lane_id % 16 / 8 * A_sm_dim2 * A_sm_dim3 + (m_warp_offset + lane_id % 8) * A_sm_dim3;
+
+  const int B_sm_2_B_mma_reg_partial_offset = transposed_lane_id % 16 / 8 * B_sm_dim2 * B_sm_dim3
+                                              + (n_warp_offset + transposed_lane_id / 16 * 8) / 8 * B_sm_dim3
+                                              + transposed_lane_id % 8 * 8;
+
+  const T* A_sm_ptr_for_mma = &data.mma.A_sm[A_sm_2_A_mma_reg_partial_offset + lane_id / 16 * 8 * A_sm_dim3];
+  const T* B_sm_ptr_for_mma = &data.mma.B_sm[B_sm_2_B_mma_reg_partial_offset];
+
+  enum {
+    LDG_SWITCH_OFF             = 0,
+    LDG_SWITCH_ON_EVICT_NORMAL = 1,
+    LDG_SWITCH_ON_EVICT_LAST   = 2,
+  };
+
+#define A_global_2_ldg_reg(A_global_ptr, ldg_reg_buffer_index, loop, cache_policy)                                     \
+  {                                                                                                                    \
+    /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */                                             \
+    /* const int k = lane_id / 16 * 8; */                                                                              \
+    if constexpr (cache_policy == LDG_SWITCH_ON_EVICT_LAST) {                                                          \
+      FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);                       \
+    }                                                                                                                  \
+    else {                                                                                                             \
+      FETCH_FLOAT4_PREFETCH_256B_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);                    \
+    }                                                                                                                  \
+  }
+
+#define B_global_2_ldg_reg(B_global_ptr, ldg_reg_buffer_index, loop, cache_policy)                                     \
+  {                                                                                                                    \
+    /* const int k = lane_id % 16;                                           */                                        \
+    /* const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;  */                                        \
+    if constexpr (cache_policy == LDG_SWITCH_ON_EVICT_LAST) {                                                          \
+      FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);                       \
+    }                                                                                                                  \
+    else {                                                                                                             \
+      FETCH_FLOAT4_PREFETCH_256B_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);                    \
+    }                                                                                                                  \
+  }
+
+#define A_ldg_reg_2_sm(ldg_sm_buffer_index, ldg_reg_buffer_index, loop)                                                \
+  {                                                                                                                    \
+    /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */                                             \
+    /* const int k = lane_id / 16 * 8;  */                                                                             \
+    STORE_FLOAT4_WITH_PTR(A_sm_ptr_for_ldg + loop * WARP_COUNT * 16 * A_sm_dim3                                        \
+                            + (ldg_sm_buffer_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3,                               \
+                          &A_ldg_reg[ldg_reg_buffer_index][loop][0]);                                                  \
+  }
+
+#define B_ldg_reg_2_sm(ldg_sm_buffer_index, ldg_reg_buffer_index, loop)                                                \
+  {                                                                                                                    \
+    /*const int k = lane_id % 16; */                                                                                   \
+    /*const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;*/                                           \
+    STORE_FLOAT4_WITH_PTR(B_sm_ptr_for_ldg + (loop) * WARP_COUNT * 2 * B_sm_dim3                                       \
+                            + (ldg_sm_buffer_index) * B_sm_dim1 * B_sm_dim2 * B_sm_dim3,                               \
+                          &B_ldg_reg[ldg_reg_buffer_index][loop][0]);                                                  \
+  }
+
+#define sm_2_A_mma_reg(ldg_sm_buffer_index, mma_reg_buffer_index, group)                                               \
+  if constexpr (M_GROUP_COUNT_PER_WARP == 1) {                                                                         \
+    /* for (int group = 0; group < M_GROUP_COUNT_PER_WARP; ++group) */ {                                               \
+      uint32_t src = __cvta_generic_to_shared(A_sm_ptr_for_mma + (group) * 8 * A_sm_dim3                               \
+                                              + (ldg_sm_buffer_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3);            \
+      asm volatile("ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];"                                          \
+                   : "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][0]),                                     \
+                     "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][2])                                      \
+                   : "r"(src));                                                                                        \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  else if constexpr (M_GROUP_COUNT_PER_WARP % 2 == 0) {                                                                \
+    /*for (int group = 0; group < M_GROUP_COUNT_PER_WARP; group += 2) */ {                                             \
+      uint32_t src = __cvta_generic_to_shared(A_sm_ptr_for_mma + (group) * 8 * A_sm_dim3                               \
+                                              + (ldg_sm_buffer_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3);            \
+      asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];"                                  \
+                   : "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][0]),                                     \
+                     "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][2]),                                     \
+                     "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group + 1][0]),                                 \
+                     "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group + 1][2])                                  \
+                   : "r"(src));                                                                                        \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  else {                                                                                                               \
+    static_assert(M_GROUP_COUNT_PER_WARP == 1 || M_GROUP_COUNT_PER_WARP % 2 == 0);                                     \
+  }
+
+#define sm_2_B_mma_reg(ldg_sm_buffer_index, mma_reg_buffer_index, group)                                               \
+  /* for (int group = 0; group < N_GROUP_COUNT_PER_WARP; ++group) */ {                                                 \
+    uint32_t src = __cvta_generic_to_shared(B_sm_ptr_for_mma + (group) * 2 * B_sm_dim3                                 \
+                                            + (ldg_sm_buffer_index) * B_sm_dim1 * B_sm_dim2 * B_sm_dim3);              \
+    asm volatile("ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0, %1, %2, %3}, [%4];"                              \
+                 : "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][0]),                                       \
+                   "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][2]),                                       \
+                   "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][4]),                                       \
+                   "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][6])                                        \
+                 : "r"(src));                                                                                          \
+  }
+
+  T* C_ptr = &C[(m_block_offset + m_warp_offset + lane_id / 4) * N + n_block_offset + n_warp_offset + lane_id % 4 * 8];
+
+#define ldm_mma_sts_stg_ldg(ldm_sm_buffer_index,                                                                       \
+                            ldm_reg_buffer_index,                                                                      \
+                            mma_reg_buffer_index,                                                                      \
+                            sts_sm_base_index,                                                                         \
+                            ldg_k_offset_x_2,                                                                          \
+                            ldg_k_offset_x_2N,                                                                         \
+                            rank,                                                                                      \
+                            ldm_switch,                                                                                \
+                            mma_switch,                                                                                \
+                            sts_switch,                                                                                \
+                            stg_switch,                                                                                \
+                            ldg_switch)                                                                                \
+  {                                                                                                                    \
+    /* STS */                                                                                                          \
+    constexpr int MxN_GORUP_COUNT = M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP;                                   \
+    constexpr int STS_COUNT       = LDG_REG_BUFFER_SIZE * (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                       \
+    static_assert(STS_COUNT <= MxN_GORUP_COUNT);                                                                       \
+    if constexpr (sts_switch && MxN_GORUP_COUNT - STS_COUNT <= rank && rank < MxN_GORUP_COUNT) {                       \
+      constexpr int sts_rank        = rank - (MxN_GORUP_COUNT - STS_COUNT);                                            \
+      constexpr int sts_addr_offset = sts_rank / (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                \
+      constexpr int sts_loop        = sts_rank % (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                \
+      if constexpr (sts_loop < A_LDG_LOOP_COUNT) {                                                                     \
+        A_ldg_reg_2_sm(sts_sm_base_index + sts_addr_offset, sts_addr_offset, sts_loop);                                \
+      }                                                                                                                \
+      if constexpr (A_LDG_LOOP_COUNT <= sts_loop) {                                                                    \
+        B_ldg_reg_2_sm(sts_sm_base_index + sts_addr_offset, sts_addr_offset, sts_loop - A_LDG_LOOP_COUNT);             \
+      }                                                                                                                \
+    }                                                                                                                  \
+    /* MMA */                                                                                                          \
+    if constexpr (mma_switch && rank < MxN_GORUP_COUNT) {                                                              \
+      constexpr int mg = rank % M_GROUP_COUNT_PER_WARP;                                                                \
+      constexpr int ng = rank / M_GROUP_COUNT_PER_WARP;                                                                \
+      mma_m16n8k16_row_col(C_mma_reg[mg][ng],                                                                          \
+                           B_mma_reg[mma_reg_buffer_index][ng],                                                        \
+                           A_mma_reg[mma_reg_buffer_index][mg],                                                        \
+                           C_mma_reg[mg][ng]);                                                                         \
+    }                                                                                                                  \
+    /* LDM */                                                                                                          \
+    static_assert(M_GROUP_COUNT_PER_WARP == 1 || M_GROUP_COUNT_PER_WARP % 2 == 0);                                     \
+    constexpr int A_LDM_COUNT = (M_GROUP_COUNT_PER_WARP + 1) / 2;                                                      \
+    constexpr int B_LDM_COUNT = N_GROUP_COUNT_PER_WARP;                                                                \
+    constexpr int LDM_COUNT   = A_LDM_COUNT + B_LDM_COUNT;                                                             \
+    static_assert(LDM_COUNT < MxN_GORUP_COUNT);                                                                        \
+    constexpr int LDM_STRIDE = (MxN_GORUP_COUNT - 1) / (LDM_COUNT - 1);                                                \
+    static_assert((LDM_COUNT - 1) * LDM_STRIDE + 1 <= MxN_GORUP_COUNT);                                                \
+    if constexpr (ldm_switch && rank < (LDM_COUNT - 1) * LDM_STRIDE + 1) {                                             \
+      constexpr int real_rank = rank / LDM_STRIDE;                                                                     \
+      if constexpr (ldm_switch && real_rank < A_LDM_COUNT) {                                                           \
+        sm_2_A_mma_reg(ldm_sm_buffer_index, ldm_reg_buffer_index, real_rank * 2);                                      \
+      }                                                                                                                \
+      if constexpr (ldm_switch && A_LDM_COUNT <= real_rank && real_rank < LDM_COUNT) {                                 \
+        sm_2_B_mma_reg(ldm_sm_buffer_index, ldm_reg_buffer_index, real_rank - A_LDM_COUNT);                            \
+      }                                                                                                                \
+    }                                                                                                                  \
+    /* LDG */                                                                                                          \
+    if constexpr (ldg_switch && rank < LDG_REG_BUFFER_SIZE * (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT)) {                  \
+      constexpr int ldg_addr_offset = rank / (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                    \
+      constexpr int ldg_loop        = rank % (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                    \
+      static_assert(ldg_addr_offset <= 2);                                                                             \
+      if constexpr (ldg_loop < A_LDG_LOOP_COUNT) {                                                                     \
+        switch (ldg_loop) {                                                                                            \
+          case 0:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_0__k_0 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_0__k_1 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 1:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_1__k_0 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_1__k_1 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 2:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_2__k_0 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_2__k_1 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 3:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_3__k_0 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(                                                                                    \
+                  A_global_ptr_for_ldg__loop_3__k_1 + ldg_k_offset_x_2, ldg_addr_offset, ldg_loop, ldg_switch);        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          default:                                                                                                     \
+            break;                                                                                                     \
+        }                                                                                                              \
+      }                                                                                                                \
+      if constexpr (A_LDG_LOOP_COUNT <= ldg_loop) {                                                                    \
+        constexpr int real_ldg_loop = ldg_loop - A_LDG_LOOP_COUNT;                                                     \
+        switch (real_ldg_loop) {                                                                                       \
+          case 0:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_0__k_0 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_0__k_1 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 1:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_1__k_0 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_1__k_1 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 2:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_2__k_0 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_2__k_1 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 3:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_3__k_0 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(                                                                                    \
+                  B_global_ptr_for_ldg__loop_3__k_1 + ldg_k_offset_x_2N, ldg_addr_offset, real_ldg_loop, ldg_switch);  \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          default:                                                                                                     \
+            break;                                                                                                     \
+        }                                                                                                              \
+      }                                                                                                                \
+    }                                                                                                                  \
+    /* STG */                                                                                                          \
+    if constexpr (stg_switch && rank < MxN_GORUP_COUNT) {                                                              \
+      constexpr int mg = rank % M_GROUP_COUNT_PER_WARP;                                                                \
+      constexpr int ng = rank / M_GROUP_COUNT_PER_WARP;                                                                \
+      T casted[4]      = {C_mma_reg[mg][ng][0], C_mma_reg[mg][ng][1], C_mma_reg[mg][ng][2], C_mma_reg[mg][ng][3]};     \
+      asm volatile("movmatrix.sync.aligned.m8n8.trans.b16 %0, %1;\n"                                                   \
+                   : "=r"(*(uint32_t*)&C_transposed[mg][ng / 2]._2x4[ng % 2][0])                                       \
+                   : "r"(*(uint32_t*)&casted[0]));                                                                     \
+      asm volatile("movmatrix.sync.aligned.m8n8.trans.b16 %0, %1;\n"                                                   \
+                   : "=r"(*(uint32_t*)&C_transposed[mg][ng / 2]._2x4[ng % 2][2])                                       \
+                   : "r"(*(uint32_t*)&casted[2]));                                                                     \
+      shfl_23_and_01(C_transposed[mg][ng / 2]._2x4[ng % 2], 0x1, lane_id);                                             \
+      if constexpr ((ng + 1) % 2 == 0) {                                                                               \
+        shfl_4567_and_0123(C_transposed[mg][ng / 2]._1x8, 0x2, lane_id);                                               \
+        asm volatile("st.global.wt.v4.f32 [%0], {%1, %2, %3, %4};"                                                     \
+                     :                                                                                                 \
+                     : "l"(C_ptr + mg * 8 * N + (ng - 1) * 16),                                                        \
+                       "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[0]),                                          \
+                       "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[2]),                                          \
+                       "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[4]),                                          \
+                       "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[6])                                           \
+                     : "memory");                                                                                      \
+      }                                                                                                                \
+    }                                                                                                                  \
+  }
+
+// FIXME This code is really stupid. Please find a way to optimize it as soon as possible.
+#define alternate_ldm_mma_sts_stg_ldg(ldm_sm_buf_index,                                                                \
+                                      ldm_reg_buf_index,                                                               \
+                                      mma_reg_buf_index,                                                               \
+                                      sts_sm_base_index,                                                               \
+                                      ldg_k_offset_x2,                                                                 \
+                                      ldg_k_offset_x2N,                                                                \
+                                      ldm_switch,                                                                      \
+                                      mma_switch,                                                                      \
+                                      sts_switch,                                                                      \
+                                      stg_switch,                                                                      \
+                                      ldg_switch)                                                                      \
+  static_assert(M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP <= 32);                                                \
+  /* clang-format off */ \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  0, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  1, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  2, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  3, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  4, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  5, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  6, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  7, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  8, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N,  9, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 10, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 11, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 12, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 13, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 14, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 15, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 16, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 17, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 18, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 19, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 20, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 21, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 22, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 23, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 24, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 25, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 26, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 27, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 28, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 29, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 30, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset_x2, ldg_k_offset_x2N, 31, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);
+  /* clang-format on */
+
+  alternate_ldm_mma_sts_stg_ldg(0, 0, 0, 0, 0, 0, false, false, false, false, LDG_SWITCH_ON_EVICT_LAST);
+  alternate_ldm_mma_sts_stg_ldg(0, 0, 0, 0, 0, 0, false, false, true, false, LDG_SWITCH_OFF);
+
+  __syncthreads();
+
+  int       LDG_SM_BUFFER_INDEX = 0;
+  int       k_loop_offset       = LOOP_TILE_K * 2;
+  int       k_loop_offset_x2    = k_loop_offset * sizeof(T);
+  int       k_loop_offset_x2N   = k_loop_offset_x2 * N;
+  const int Nx2xLOOP_TILE_K     = LOOP_TILE_K * 2 * sizeof(T) * N;
+
+  alternate_ldm_mma_sts_stg_ldg(
+    LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0, 0, 0, 0, true, false, false, false, LDG_SWITCH_OFF);
+
+  {
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  (LDG_SM_BUFFER_INDEX ^ 2),
+                                  k_loop_offset_x2,
+                                  k_loop_offset_x2N,
+                                  true,
+                                  true,
+                                  true,
+                                  false,
+                                  LDG_SWITCH_ON_EVICT_LAST);
+
+    LDG_SM_BUFFER_INDEX ^= 2;
+    k_loop_offset += LOOP_TILE_K * 2;
+    k_loop_offset_x2 += LOOP_TILE_K * 2 * sizeof(T);
+    k_loop_offset_x2N += Nx2xLOOP_TILE_K;
+
+    __syncthreads();
+
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  k_loop_offset_x2,
+                                  k_loop_offset_x2N,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_ON_EVICT_NORMAL);
+  }
+
+  while (k_loop_offset + LOOP_TILE_K * 2 < K) {
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  (LDG_SM_BUFFER_INDEX ^ 2),
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  true,
+                                  false,
+                                  LDG_SWITCH_OFF);
+
+    LDG_SM_BUFFER_INDEX ^= 2;
+    k_loop_offset += LOOP_TILE_K * 2;
+    k_loop_offset_x2 += LOOP_TILE_K * 2 * sizeof(T);
+    k_loop_offset_x2N += Nx2xLOOP_TILE_K;
+
+    __syncthreads();
+
+    alternate_ldm_mma_sts_stg_ldg(
+      0, 0, 0, 0, k_loop_offset_x2, k_loop_offset_x2N, false, false, false, false, LDG_SWITCH_ON_EVICT_NORMAL);
+
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_OFF);
+  }
+
+  {
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  (LDG_SM_BUFFER_INDEX ^ 2),
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  true,
+                                  false,
+                                  LDG_SWITCH_OFF);
+    LDG_SM_BUFFER_INDEX ^= 2;
+    k_loop_offset += LOOP_TILE_K * 2;
+    k_loop_offset_x2 += LOOP_TILE_K * 2 * sizeof(T);
+    k_loop_offset_x2N += Nx2xLOOP_TILE_K;
+
+    __syncthreads();
+
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_OFF);
+  }
+
+  {
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  0,
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_OFF);
+
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  0,
+                                  0,
+                                  false,
+                                  true,
+                                  false,
+                                  true,
+                                  LDG_SWITCH_OFF);
+  }
+
+#undef A_global_2_ldg_reg
+#undef A_ldg_reg_2_sm
+#undef B_global_2_ldg_reg
+#undef B_ldg_reg_2_sm
+#undef sm_2_A_mma_reg
+#undef sm_2_B_mma_reg
+#undef ldm_mma_sts_stg_ldg
+#undef alternate_ldm_mma_sts_stg_ldg
+}
+
+template<typename T, int BLOCK_TILE_M, int BLOCK_TILE_N, int WARP_TILE_M, int WARP_TILE_N>
+__global__ void
+fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reduce_IMAD_AND_LEA__m16n8k8(
+  const T* A, const T* B, T* C, int M, int N, int K)
+{
+  constexpr int WARP_COUNT   = BLOCK_TILE_M / WARP_TILE_M * BLOCK_TILE_N / WARP_TILE_N;
+  constexpr int THREAD_COUNT = WARP_COUNT * 32;
+
+  constexpr int LOOP_TILE_K         = 16;
+  constexpr int LDG_SM_BUFFER_SIZE  = 4;
+  constexpr int LDG_REG_BUFFER_SIZE = 2;
+
+  constexpr int A_sm_dim0 = LDG_SM_BUFFER_SIZE;
+  constexpr int A_sm_dim1 = 2;
+  constexpr int A_sm_dim2 = BLOCK_TILE_M;
+  constexpr int A_sm_dim3 = LOOP_TILE_K / 2;
+  constexpr int B_sm_dim0 = LDG_SM_BUFFER_SIZE;
+  constexpr int B_sm_dim1 = LOOP_TILE_K / 8;
+  constexpr int B_sm_dim2 = BLOCK_TILE_N / 8;
+  constexpr int B_sm_dim3 = 64;
+
+  // The 64 elements of type T in each 8x8 matrix are stored consecutively in a single layer of shared memory.
+  __shared__ union {
+    struct {
+      T A_sm[A_sm_dim0 * A_sm_dim1 * A_sm_dim2 * A_sm_dim3];
+      T B_sm[B_sm_dim0 * B_sm_dim1 * B_sm_dim2 * B_sm_dim3];
+    } mma;
+    static_assert(WARP_TILE_N % 16 == 0);
+    T result[WARP_COUNT][WARP_TILE_N / 16][WARP_TILE_M][16];
+  } data;
+
+  static_assert(BLOCK_TILE_M * LOOP_TILE_K % THREAD_COUNT == 0);
+  static_assert(BLOCK_TILE_M * LOOP_TILE_K / THREAD_COUNT % 8 == 0);
+  constexpr int A_LDG_COUNT_PER_THREAD = BLOCK_TILE_M * LOOP_TILE_K / THREAD_COUNT;
+  constexpr int A_LDG_LOOP_COUNT       = A_LDG_COUNT_PER_THREAD / 8;
+  // clang-format off
+  // This is the thread layout of the same warp that loads matrix A, where each thread reads M1xK8 elements of type T at a
+  // loop iteration.
+  // T0  T16
+  // T1  T17
+  // T2  T18
+  // ... ...
+  // T14 T30
+  // T15 T31
+  // clang-format on
+  float A_ldg_reg[LDG_REG_BUFFER_SIZE][A_LDG_LOOP_COUNT][4];
+
+  static_assert(BLOCK_TILE_N * LOOP_TILE_K % THREAD_COUNT == 0);
+  static_assert(BLOCK_TILE_N * LOOP_TILE_K / THREAD_COUNT % 8 == 0);
+  constexpr int B_LDG_COUNT_PER_THREAD = BLOCK_TILE_N * LOOP_TILE_K / THREAD_COUNT;
+  constexpr int B_LDG_LOOP_COUNT       = B_LDG_COUNT_PER_THREAD / 8;
+  // clang-format off
+  // This is the thread layout of the same warp that loads matrix B, where each thread reads K1xN8 elements of type T at a
+  // loop iteration.
+  // T0  T16
+  // T1  T17
+  // T2  T18
+  // ... ...
+  // T14 T30
+  // T15 T31
+  // clang-format on
+  float B_ldg_reg[LDG_REG_BUFFER_SIZE][B_LDG_LOOP_COUNT][4];
+
+  const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
+  const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
+
+  const int warp_id                 = threadIdx.x / 32;
+  const int lane_id                 = threadIdx.x % 32;
+  const int transposed_lane_id_mask = (lane_id / 8 == 0 || lane_id / 8 == 3) ? 0x00 : 0x18;
+  const int transposed_lane_id      = lane_id ^ transposed_lane_id_mask;
+
+  constexpr int M_MMA_WARP_COUNT       = BLOCK_TILE_M / WARP_TILE_M;
+  constexpr int M_GROUP_COUNT_PER_WARP = WARP_TILE_M / 8;
+  constexpr int N_GROUP_COUNT_PER_WARP = WARP_TILE_N / 16;
+
+  constexpr int MMA_REG_BUFFER_SIZE    = 2;
+  constexpr int MMA_REG_BUFFER_INDEX_0 = 0;
+  constexpr int MMA_REG_BUFFER_INDEX_1 = 1;
+  T             A_mma_reg[MMA_REG_BUFFER_SIZE][M_GROUP_COUNT_PER_WARP][4];
+  T             B_mma_reg[MMA_REG_BUFFER_SIZE][N_GROUP_COUNT_PER_WARP][8];
+  float         C_mma_reg[M_GROUP_COUNT_PER_WARP][N_GROUP_COUNT_PER_WARP][4] = {0};
+  static_assert(N_GROUP_COUNT_PER_WARP % 2 == 0);
+  union _2x4_or_1x8 {
+    T _2x4[2][4];
+    T _1x8[8];
+  };
+  _2x4_or_1x8 C_transposed[M_GROUP_COUNT_PER_WARP][N_GROUP_COUNT_PER_WARP / 2];
+
+  const int m_warp_offset = warp_id % M_MMA_WARP_COUNT * WARP_TILE_M;
+  const int n_warp_offset = warp_id / M_MMA_WARP_COUNT * WARP_TILE_N;
+
+  const int A_ldg_reg_2_A_sm_partial_offset =
+    lane_id / 16 * A_sm_dim2 * A_sm_dim3 + (warp_id * 16 + lane_id % 16) * A_sm_dim3;
+
+  const int B_ldg_reg_2_B_sm_partial_offset =
+    (lane_id % 16) / 8 * B_sm_dim2 * B_sm_dim3 + (lane_id % 16) % 8 * 8 + (warp_id * 2 + lane_id / 16) * B_sm_dim3;
+
+  const int A_global_partial_offset = (m_block_offset + warp_id * 16 + lane_id % 16) * K + lane_id / 16 * 8;
+  const int B_global_partial_offset = lane_id % 16 * N + n_block_offset + warp_id * 16 + lane_id / 16 * 8;
+
+  const T* A_global_ptr_for_ldg = &A[A_global_partial_offset];
+  const T* B_global_ptr_for_ldg = &B[B_global_partial_offset];
+
+  static_assert(A_LDG_LOOP_COUNT <= 4);
+  static_assert(B_LDG_LOOP_COUNT <= 4);
+  static_assert(LDG_REG_BUFFER_SIZE <= 2);
+  const uint64_t A_global_ptr_for_ldg__loop_0__k_0 = (uint64_t)(A_global_ptr_for_ldg + 0 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_1__k_0 = (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_2__k_0 = (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_3__k_0 = (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + 0);
+  const uint64_t A_global_ptr_for_ldg__loop_0__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 0 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_1__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_2__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_3__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t B_global_ptr_for_ldg__loop_0__k_0 = (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_1__k_0 = (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_2__k_0 = (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_3__k_0 = (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + 0);
+  const uint64_t B_global_ptr_for_ldg__loop_0__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_1__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_2__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_3__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+
+  const T* A_sm_ptr_for_ldg = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset];
+  const T* B_sm_ptr_for_ldg = &data.mma.B_sm[B_ldg_reg_2_B_sm_partial_offset];
+
+  const int A_sm_2_A_mma_reg_partial_offset =
+    lane_id % 16 / 8 * A_sm_dim2 * A_sm_dim3 + (m_warp_offset + lane_id % 8) * A_sm_dim3;
+
+  const int B_sm_2_B_mma_reg_partial_offset = transposed_lane_id % 16 / 8 * B_sm_dim2 * B_sm_dim3
+                                              + (n_warp_offset + transposed_lane_id / 16 * 8) / 8 * B_sm_dim3
+                                              + transposed_lane_id % 8 * 8;
+
+  const T* A_sm_ptr_for_mma = &data.mma.A_sm[A_sm_2_A_mma_reg_partial_offset + lane_id / 16 * 8 * A_sm_dim3];
+  const T* B_sm_ptr_for_mma = &data.mma.B_sm[B_sm_2_B_mma_reg_partial_offset];
+
+  enum {
+    LDG_SWITCH_OFF             = 0,
+    LDG_SWITCH_ON_EVICT_NORMAL = 1,
+    LDG_SWITCH_ON_EVICT_LAST   = 2,
+  };
+
+#define A_global_2_ldg_reg(A_global_ptr, ldg_reg_buffer_index, loop, cache_policy)                                     \
+  {                                                                                                                    \
+    /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */                                             \
+    /* const int k = lane_id / 16 * 8; */                                                                              \
+    if constexpr (cache_policy == LDG_SWITCH_ON_EVICT_LAST) {                                                          \
+      FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);                       \
+    }                                                                                                                  \
+    else {                                                                                                             \
+      FETCH_FLOAT4_WITH_PTR(&A_ldg_reg[ldg_reg_buffer_index][loop][0], A_global_ptr);                                  \
+    }                                                                                                                  \
+  }
+
+#define B_global_2_ldg_reg(B_global_ptr, ldg_reg_buffer_index, loop, cache_policy)                                     \
+  {                                                                                                                    \
+    /* const int k = lane_id % 16;                                           */                                        \
+    /* const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;  */                                        \
+    if constexpr (cache_policy == LDG_SWITCH_ON_EVICT_LAST && false) {                                                 \
+      FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);                       \
+    }                                                                                                                  \
+    else {                                                                                                             \
+      FETCH_FLOAT4_WITH_PTR(&B_ldg_reg[ldg_reg_buffer_index][loop][0], B_global_ptr);                                  \
+    }                                                                                                                  \
+  }
+
+#define A_ldg_reg_2_sm(ldg_sm_buffer_index, ldg_reg_buffer_index, loop)                                                \
+  {                                                                                                                    \
+    /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */                                             \
+    /* const int k = lane_id / 16 * 8;  */                                                                             \
+    STORE_FLOAT4_WITH_PTR(A_sm_ptr_for_ldg + loop * WARP_COUNT * 16 * A_sm_dim3                                        \
+                            + (ldg_sm_buffer_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3,                               \
+                          &A_ldg_reg[ldg_reg_buffer_index][loop][0]);                                                  \
+  }
+
+#define B_ldg_reg_2_sm(ldg_sm_buffer_index, ldg_reg_buffer_index, loop)                                                \
+  {                                                                                                                    \
+    /*const int k = lane_id % 16; */                                                                                   \
+    /*const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;*/                                           \
+    STORE_FLOAT4_WITH_PTR(B_sm_ptr_for_ldg + (loop) * WARP_COUNT * 2 * B_sm_dim3                                       \
+                            + (ldg_sm_buffer_index) * B_sm_dim1 * B_sm_dim2 * B_sm_dim3,                               \
+                          &B_ldg_reg[ldg_reg_buffer_index][loop][0]);                                                  \
+  }
+
+#define sm_2_A_mma_reg(ldg_sm_buffer_index, mma_reg_buffer_index, group)                                               \
+  if constexpr (M_GROUP_COUNT_PER_WARP == 1) {                                                                         \
+    /* for (int group = 0; group < M_GROUP_COUNT_PER_WARP; ++group) */ {                                               \
+      uint32_t src = __cvta_generic_to_shared(A_sm_ptr_for_mma + (group) * 8 * A_sm_dim3                               \
+                                              + (ldg_sm_buffer_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3);            \
+      asm volatile("ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];"                                          \
+                   : "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][0]),                                     \
+                     "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][2])                                      \
+                   : "r"(src));                                                                                        \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  else if constexpr (M_GROUP_COUNT_PER_WARP % 2 == 0) {                                                                \
+    /*for (int group = 0; group < M_GROUP_COUNT_PER_WARP; group += 2) */ {                                             \
+      uint32_t src = __cvta_generic_to_shared(A_sm_ptr_for_mma + (group) * 8 * A_sm_dim3                               \
+                                              + (ldg_sm_buffer_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3);            \
+      asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];"                                  \
+                   : "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][0]),                                     \
+                     "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][2]),                                     \
+                     "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group + 1][0]),                                 \
+                     "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group + 1][2])                                  \
+                   : "r"(src));                                                                                        \
+    }                                                                                                                  \
+  }                                                                                                                    \
+  else {                                                                                                               \
+    static_assert(M_GROUP_COUNT_PER_WARP == 1 || M_GROUP_COUNT_PER_WARP % 2 == 0);                                     \
+  }
+
+#define sm_2_B_mma_reg(ldg_sm_buffer_index, mma_reg_buffer_index, group)                                               \
+  /* for (int group = 0; group < N_GROUP_COUNT_PER_WARP; ++group) */ {                                                 \
+    uint32_t src = __cvta_generic_to_shared(B_sm_ptr_for_mma + (group) * 2 * B_sm_dim3                                 \
+                                            + (ldg_sm_buffer_index) * B_sm_dim1 * B_sm_dim2 * B_sm_dim3);              \
+    asm volatile("ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0, %1, %2, %3}, [%4];"                              \
+                 : "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][0]),                                       \
+                   "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][2]),                                       \
+                   "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][4]),                                       \
+                   "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][6])                                        \
+                 : "r"(src));                                                                                          \
+  }
+
+#define mma_m16n8k8_row_col(d, a, b, c)                                                                                \
+  {                                                                                                                    \
+    uint32_t const* A = reinterpret_cast<uint32_t const*>(&a);                                                         \
+    uint32_t const* B = reinterpret_cast<uint32_t const*>(&b);                                                         \
+    float const*    C = reinterpret_cast<float const*>(&c);                                                            \
+    float*          D = reinterpret_cast<float*>(&d);                                                                  \
+    if constexpr (std::is_same<T, half>::value) {                                                                      \
+      asm volatile("mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32  {%0,%1,%2,%3}, "                                 \
+                   "{%4,%5}, {%6}, {%7,%8,%9,%10};\n"                                                                  \
+                   : "=f"(D[0]), "=f"(D[1]), "=f"(D[2]), "=f"(D[3])                                                    \
+                   : "r"(A[0]), "r"(A[1]), "r"(B[0]), "f"(C[0]), "f"(C[1]), "f"(C[2]), "f"(C[3]));                     \
+    }                                                                                                                  \
+    else if constexpr (std::is_same<T, __nv_bfloat16>::value) {                                                        \
+      asm volatile("mma.sync.aligned.m16n8k8.row.col.f32.bf16.bf16.f32  {%0,%1,%2,%3}, "                               \
+                   "{%4,%5}, {%6}, {%7,%8,%9,%10};\n"                                                                  \
+                   : "=f"(D[0]), "=f"(D[1]), "=f"(D[2]), "=f"(D[3])                                                    \
+                   : "r"(A[0]), "r"(A[1]), "r"(B[0]), "f"(C[0]), "f"(C[1]), "f"(C[2]), "f"(C[3]));                     \
+    }                                                                                                                  \
+    else {                                                                                                             \
+      static_assert(std::is_same<T, half>::value == false && std::is_same<T, __nv_bfloat16>::value == false);          \
+    }                                                                                                                  \
+  }
+
+  T* C_ptr = &C[(m_block_offset + m_warp_offset + lane_id / 4) * N + n_block_offset + n_warp_offset + lane_id % 4 * 8];
+
+#define ldm_mma_sts_stg_ldg(ldm_sm_buffer_index,                                                                       \
+                            ldm_reg_buffer_index,                                                                      \
+                            mma_reg_buffer_index,                                                                      \
+                            sts_sm_base_index,                                                                         \
+                            ldg_k_offset,                                                                              \
+                            rank,                                                                                      \
+                            ldm_switch,                                                                                \
+                            mma_switch,                                                                                \
+                            sts_switch,                                                                                \
+                            stg_switch,                                                                                \
+                            ldg_switch)                                                                                \
+  {                                                                                                                    \
+    /* STS */                                                                                                          \
+    constexpr int MxN_GORUP_COUNT   = M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP;                                 \
+    constexpr int MxNx2_GORUP_COUNT = M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP * 2;                             \
+    constexpr int STS_COUNT         = LDG_REG_BUFFER_SIZE * (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                     \
+    static_assert(STS_COUNT <= MxNx2_GORUP_COUNT);                                                                     \
+    if constexpr (sts_switch && MxNx2_GORUP_COUNT - STS_COUNT <= rank && rank < MxNx2_GORUP_COUNT) {                   \
+      constexpr int sts_rank        = rank - (MxNx2_GORUP_COUNT - STS_COUNT);                                          \
+      constexpr int sts_addr_offset = sts_rank / (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                \
+      constexpr int sts_loop        = sts_rank % (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                \
+      if constexpr (sts_loop < A_LDG_LOOP_COUNT) {                                                                     \
+        A_ldg_reg_2_sm(sts_sm_base_index + sts_addr_offset, sts_addr_offset, sts_loop);                                \
+      }                                                                                                                \
+      if constexpr (A_LDG_LOOP_COUNT <= sts_loop) {                                                                    \
+        B_ldg_reg_2_sm(sts_sm_base_index + sts_addr_offset, sts_addr_offset, sts_loop - A_LDG_LOOP_COUNT);             \
+      }                                                                                                                \
+    }                                                                                                                  \
+    /* MMA */                                                                                                          \
+    if constexpr (mma_switch && rank < MxNx2_GORUP_COUNT) {                                                            \
+      constexpr int offset = rank / MxN_GORUP_COUNT;                                                                   \
+      constexpr int mg     = rank % (M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP) % M_GROUP_COUNT_PER_WARP;        \
+      constexpr int ng     = rank % (M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP) / M_GROUP_COUNT_PER_WARP;        \
+      mma_m16n8k8_row_col(C_mma_reg[mg][ng],                                                                           \
+                          B_mma_reg[mma_reg_buffer_index][ng][4 * offset],                                             \
+                          A_mma_reg[mma_reg_buffer_index][mg][2 * offset],                                             \
+                          C_mma_reg[mg][ng]);                                                                          \
+    }                                                                                                                  \
+    /* LDM */                                                                                                          \
+    static_assert(M_GROUP_COUNT_PER_WARP == 1 || M_GROUP_COUNT_PER_WARP % 2 == 0);                                     \
+    static_assert((M_GROUP_COUNT_PER_WARP + 1) / 2 + N_GROUP_COUNT_PER_WARP < MxNx2_GORUP_COUNT);                      \
+    if constexpr (ldm_switch && rank < (M_GROUP_COUNT_PER_WARP + 1) / 2) {                                             \
+      sm_2_A_mma_reg(ldm_sm_buffer_index, ldm_reg_buffer_index, rank * 2);                                             \
+    }                                                                                                                  \
+    if constexpr (ldm_switch && (M_GROUP_COUNT_PER_WARP + 1) / 2 <= rank                                               \
+                  && rank < (M_GROUP_COUNT_PER_WARP + 1) / 2 + N_GROUP_COUNT_PER_WARP) {                               \
+      sm_2_B_mma_reg(ldm_sm_buffer_index, ldm_reg_buffer_index, rank - (M_GROUP_COUNT_PER_WARP + 1) / 2);              \
+    }                                                                                                                  \
+    /* LDG */                                                                                                          \
+    if constexpr (ldg_switch && rank < LDG_REG_BUFFER_SIZE * (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT)) {                  \
+      constexpr int ldg_addr_offset = rank / (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                    \
+      constexpr int ldg_loop        = rank % (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                    \
+      static_assert(ldg_addr_offset <= 2);                                                                             \
+      if constexpr (ldg_loop < A_LDG_LOOP_COUNT) {                                                                     \
+        switch (ldg_loop) {                                                                                            \
+          case 0:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(A_global_ptr_for_ldg__loop_0__k_0 + ldg_k_offset * sizeof(T),                       \
+                                   ldg_addr_offset,                                                                    \
+                                   ldg_loop,                                                                           \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(A_global_ptr_for_ldg__loop_0__k_1 + ldg_k_offset * sizeof(T),                       \
+                                   ldg_addr_offset,                                                                    \
+                                   ldg_loop,                                                                           \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 1:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(A_global_ptr_for_ldg__loop_1__k_0 + ldg_k_offset * sizeof(T),                       \
+                                   ldg_addr_offset,                                                                    \
+                                   ldg_loop,                                                                           \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(A_global_ptr_for_ldg__loop_1__k_1 + ldg_k_offset * sizeof(T),                       \
+                                   ldg_addr_offset,                                                                    \
+                                   ldg_loop,                                                                           \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 2:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(A_global_ptr_for_ldg__loop_2__k_0 + ldg_k_offset * sizeof(T),                       \
+                                   ldg_addr_offset,                                                                    \
+                                   ldg_loop,                                                                           \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(A_global_ptr_for_ldg__loop_2__k_1 + ldg_k_offset * sizeof(T),                       \
+                                   ldg_addr_offset,                                                                    \
+                                   ldg_loop,                                                                           \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 3:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                A_global_2_ldg_reg(A_global_ptr_for_ldg__loop_3__k_0 + ldg_k_offset * sizeof(T),                       \
+                                   ldg_addr_offset,                                                                    \
+                                   ldg_loop,                                                                           \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                A_global_2_ldg_reg(A_global_ptr_for_ldg__loop_3__k_1 + ldg_k_offset * sizeof(T),                       \
+                                   ldg_addr_offset,                                                                    \
+                                   ldg_loop,                                                                           \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          default:                                                                                                     \
+            break;                                                                                                     \
+        }                                                                                                              \
+      }                                                                                                                \
+      if constexpr (A_LDG_LOOP_COUNT <= ldg_loop) {                                                                    \
+        constexpr int real_ldg_loop = ldg_loop - A_LDG_LOOP_COUNT;                                                     \
+        switch (real_ldg_loop) {                                                                                       \
+          case 0:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(B_global_ptr_for_ldg__loop_0__k_0 + ldg_k_offset * N * sizeof(T),                   \
+                                   ldg_addr_offset,                                                                    \
+                                   real_ldg_loop,                                                                      \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(B_global_ptr_for_ldg__loop_0__k_1 + ldg_k_offset * N * sizeof(T),                   \
+                                   ldg_addr_offset,                                                                    \
+                                   real_ldg_loop,                                                                      \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 1:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(B_global_ptr_for_ldg__loop_1__k_0 + ldg_k_offset * N * sizeof(T),                   \
+                                   ldg_addr_offset,                                                                    \
+                                   real_ldg_loop,                                                                      \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(B_global_ptr_for_ldg__loop_1__k_1 + ldg_k_offset * N * sizeof(T),                   \
+                                   ldg_addr_offset,                                                                    \
+                                   real_ldg_loop,                                                                      \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 2:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(B_global_ptr_for_ldg__loop_2__k_0 + ldg_k_offset * N * sizeof(T),                   \
+                                   ldg_addr_offset,                                                                    \
+                                   real_ldg_loop,                                                                      \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(B_global_ptr_for_ldg__loop_2__k_1 + ldg_k_offset * N * sizeof(T),                   \
+                                   ldg_addr_offset,                                                                    \
+                                   real_ldg_loop,                                                                      \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          case 3:                                                                                                      \
+            switch (ldg_addr_offset) {                                                                                 \
+              case 0:                                                                                                  \
+                B_global_2_ldg_reg(B_global_ptr_for_ldg__loop_3__k_0 + ldg_k_offset * N * sizeof(T),                   \
+                                   ldg_addr_offset,                                                                    \
+                                   real_ldg_loop,                                                                      \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              case 1:                                                                                                  \
+                B_global_2_ldg_reg(B_global_ptr_for_ldg__loop_3__k_1 + ldg_k_offset * N * sizeof(T),                   \
+                                   ldg_addr_offset,                                                                    \
+                                   real_ldg_loop,                                                                      \
+                                   ldg_switch);                                                                        \
+                break;                                                                                                 \
+              default:                                                                                                 \
+                break;                                                                                                 \
+            }                                                                                                          \
+            break;                                                                                                     \
+          default:                                                                                                     \
+            break;                                                                                                     \
+        }                                                                                                              \
+      }                                                                                                                \
+    }                                                                                                                  \
+    /* STG */                                                                                                          \
+    if constexpr (stg_switch && rank < MxNx2_GORUP_COUNT) {                                                            \
+      constexpr int offset = rank / (M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP);                                 \
+      if constexpr (offset == 1) {                                                                                     \
+        constexpr int mg = rank % (M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP) % M_GROUP_COUNT_PER_WARP;          \
+        constexpr int ng = rank % (M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP) / M_GROUP_COUNT_PER_WARP;          \
+        T casted[4]      = {C_mma_reg[mg][ng][0], C_mma_reg[mg][ng][1], C_mma_reg[mg][ng][2], C_mma_reg[mg][ng][3]};   \
+        asm volatile("movmatrix.sync.aligned.m8n8.trans.b16 %0, %1;\n"                                                 \
+                     : "=r"(*(uint32_t*)&C_transposed[mg][ng / 2]._2x4[ng % 2][0])                                     \
+                     : "r"(*(uint32_t*)&casted[0]));                                                                   \
+        asm volatile("movmatrix.sync.aligned.m8n8.trans.b16 %0, %1;\n"                                                 \
+                     : "=r"(*(uint32_t*)&C_transposed[mg][ng / 2]._2x4[ng % 2][2])                                     \
+                     : "r"(*(uint32_t*)&casted[2]));                                                                   \
+        shfl_23_and_01(C_transposed[mg][ng / 2]._2x4[ng % 2], 0x1, lane_id);                                           \
+        if constexpr ((ng + 1) % 2 == 0) {                                                                             \
+          shfl_4567_and_0123(C_transposed[mg][ng / 2]._1x8, 0x2, lane_id);                                             \
+          asm volatile("st.global.wt.v4.f32 [%0], {%1, %2, %3, %4};"                                                   \
+                       :                                                                                               \
+                       : "l"(C_ptr + mg * 8 * N + (ng - 1) * 16),                                                      \
+                         "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[0]),                                        \
+                         "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[2]),                                        \
+                         "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[4]),                                        \
+                         "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[6])                                         \
+                       : "memory");                                                                                    \
+        }                                                                                                              \
+      }                                                                                                                \
+    }                                                                                                                  \
+  }
+
+// FIXME This code is really stupid. Please find a way to optimize it as soon as possible.
+#define alternate_ldm_mma_sts_stg_ldg(ldm_sm_buf_index,                                                                \
+                                      ldm_reg_buf_index,                                                               \
+                                      mma_reg_buf_index,                                                               \
+                                      sts_sm_base_index,                                                               \
+                                      ldg_k_offset,                                                                    \
+                                      ldm_switch,                                                                      \
+                                      mma_switch,                                                                      \
+                                      sts_switch,                                                                      \
+                                      stg_switch,                                                                      \
+                                      ldg_switch)                                                                      \
+  static_assert(M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP * 2 <= 64);                                            \
+  /* clang-format off */ \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  0, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  1, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  2, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  3, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  4, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  5, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  6, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  7, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  8, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  9, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 10, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 11, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 12, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 13, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 14, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 15, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 16, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 17, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 18, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 19, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 20, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 21, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 22, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 23, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 24, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 25, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 26, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 27, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 28, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 29, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 30, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 31, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 32, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 33, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 34, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 35, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 36, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 37, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 38, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 39, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 40, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 41, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 42, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 43, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 44, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 45, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 46, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 47, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 48, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 49, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 50, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 51, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 52, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 53, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 54, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 55, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 56, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 57, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 58, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 59, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 60, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 61, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 62, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+  ldm_mma_sts_stg_ldg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 63, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);
+  /* clang-format on */
+
+  alternate_ldm_mma_sts_stg_ldg(0, 0, 0, 0, 0, false, false, false, false, LDG_SWITCH_ON_EVICT_LAST);
+  alternate_ldm_mma_sts_stg_ldg(0, 0, 0, 0, 0, false, false, true, false, LDG_SWITCH_OFF);
+
+  __syncthreads();
+
+  int LDG_SM_BUFFER_INDEX = 0;
+  int k_loop_offset       = LOOP_TILE_K * 2;
+
+  alternate_ldm_mma_sts_stg_ldg(
+    LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, 0, 0, 0, true, false, false, false, LDG_SWITCH_OFF);
+
+  {
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  (LDG_SM_BUFFER_INDEX ^ 2),
+                                  k_loop_offset,
+                                  true,
+                                  true,
+                                  true,
+                                  false,
+                                  LDG_SWITCH_ON_EVICT_NORMAL);
+
+    LDG_SM_BUFFER_INDEX ^= 2;
+    k_loop_offset += LOOP_TILE_K * 2;
+
+    __syncthreads();
+
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  k_loop_offset,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_ON_EVICT_NORMAL);
+  }
+
+  while (k_loop_offset + LOOP_TILE_K * 2 < K) {
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  (LDG_SM_BUFFER_INDEX ^ 2),
+                                  0,
+                                  true,
+                                  true,
+                                  true,
+                                  false,
+                                  LDG_SWITCH_OFF);
+
+    LDG_SM_BUFFER_INDEX ^= 2;
+    k_loop_offset += LOOP_TILE_K * 2;
+
+    __syncthreads();
+
+    alternate_ldm_mma_sts_stg_ldg(0, 0, 0, 0, k_loop_offset, false, false, false, false, LDG_SWITCH_ON_EVICT_NORMAL);
+
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_OFF);
+  }
+
+  {
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  (LDG_SM_BUFFER_INDEX ^ 2),
+                                  0,
+                                  true,
+                                  true,
+                                  true,
+                                  false,
+                                  LDG_SWITCH_OFF);
+    LDG_SM_BUFFER_INDEX ^= 2;
+    k_loop_offset += LOOP_TILE_K * 2;
+
+    __syncthreads();
+
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_OFF);
+  }
+
+  {
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX + 1,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  0,
+                                  0,
+                                  true,
+                                  true,
+                                  false,
+                                  false,
+                                  LDG_SWITCH_OFF);
+
+    alternate_ldm_mma_sts_stg_ldg(LDG_SM_BUFFER_INDEX,
+                                  MMA_REG_BUFFER_INDEX_0,
+                                  MMA_REG_BUFFER_INDEX_1,
+                                  0,
+                                  0,
+                                  false,
+                                  true,
+                                  false,
+                                  true,
+                                  LDG_SWITCH_OFF);
+  }
+
+#undef A_global_2_ldg_reg
+#undef A_ldg_reg_2_sm
+#undef B_global_2_ldg_reg
+#undef B_ldg_reg_2_sm
+#undef sm_2_A_mma_reg
+#undef sm_2_B_mma_reg
+#undef ldm_mma_sts_stg_ldg
+#undef alternate_ldm_mma_sts_stg_ldg
+#undef mma_m16n8k8_row_col
 }
 
 // template<typename T, int BLOCK_TILE_M, int BLOCK_TILE_N, int WARP_TILE_M, int WARP_TILE_N>
@@ -3525,11 +5580,11 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
 // {
 //   constexpr int WARP_COUNT   = BLOCK_TILE_M / WARP_TILE_M * BLOCK_TILE_N / WARP_TILE_N;
 //   constexpr int THREAD_COUNT = WARP_COUNT * 32;
-// 
+//
 //   constexpr int LOOP_TILE_K         = 16;
 //   constexpr int LDG_SM_BUFFER_SIZE  = 4;
 //   constexpr int LDG_REG_BUFFER_SIZE = 2;
-// 
+//
 //   constexpr int A_sm_dim0 = LDG_SM_BUFFER_SIZE;
 //   constexpr int A_sm_dim1 = 2;
 //   constexpr int A_sm_dim2 = BLOCK_TILE_M;
@@ -3538,7 +5593,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
 //   constexpr int B_sm_dim1 = LOOP_TILE_K / 8;
 //   constexpr int B_sm_dim2 = BLOCK_TILE_N / 8;
 //   constexpr int B_sm_dim3 = 64;
-// 
+//
 //   // The 64 elements of type T in each 8x8 matrix are stored consecutively in a single layer of shared memory.
 //   __shared__ union {
 //     struct {
@@ -3548,13 +5603,14 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
 //     static_assert(WARP_TILE_N % 16 == 0);
 //     T result[WARP_COUNT][WARP_TILE_N / 16][WARP_TILE_M][16];
 //   } data;
-// 
+//
 //   static_assert(BLOCK_TILE_M * LOOP_TILE_K % THREAD_COUNT == 0);
 //   static_assert(BLOCK_TILE_M * LOOP_TILE_K / THREAD_COUNT % 8 == 0);
 //   constexpr int A_LDG_COUNT_PER_THREAD = BLOCK_TILE_M * LOOP_TILE_K / THREAD_COUNT;
 //   constexpr int A_LDG_LOOP_COUNT       = A_LDG_COUNT_PER_THREAD / 8;
 //   // clang-format off
-//   // This is the thread layout of the same warp that loads matrix A, where each thread reads M1xK8 elements of type T at a
+//   // This is the thread layout of the same warp that loads matrix A, where each thread reads M1xK8 elements of type T
+//   at a
 //   // loop iteration.
 //   // T0  T16
 //   // T1  T17
@@ -3564,13 +5620,14 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
 //   // T15 T31
 //   // clang-format on
 //   float A_ldg_reg[LDG_REG_BUFFER_SIZE][A_LDG_LOOP_COUNT][4];
-// 
+//
 //   static_assert(BLOCK_TILE_N * LOOP_TILE_K % THREAD_COUNT == 0);
 //   static_assert(BLOCK_TILE_N * LOOP_TILE_K / THREAD_COUNT % 8 == 0);
 //   constexpr int B_LDG_COUNT_PER_THREAD = BLOCK_TILE_N * LOOP_TILE_K / THREAD_COUNT;
 //   constexpr int B_LDG_LOOP_COUNT       = B_LDG_COUNT_PER_THREAD / 8;
 //   // clang-format off
-//   // This is the thread layout of the same warp that loads matrix B, where each thread reads K1xN8 elements of type T at a
+//   // This is the thread layout of the same warp that loads matrix B, where each thread reads K1xN8 elements of type T
+//   at a
 //   // loop iteration.
 //   // T0  T16
 //   // T1  T17
@@ -3580,19 +5637,19 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
 //   // T15 T31
 //   // clang-format on
 //   float B_ldg_reg[LDG_REG_BUFFER_SIZE][B_LDG_LOOP_COUNT][4];
-// 
+//
 //   const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
 //   const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
-// 
+//
 //   const int     warp_id                    = threadIdx.x / 32;
 //   const int     lane_id                    = threadIdx.x % 32;
-//   constexpr int transposed_lane_id_mask[4] = {0x00, 0x18, 0x18, 0x00};
-//   const int     transposed_lane_id         = lane_id ^ transposed_lane_id_mask[lane_id / 8];
-// 
+//   const int transposed_lane_id_mask = (lane_id / 8 == 0 || lane_id / 8 == 3) ? 0x00 : 0x18;
+//   const int transposed_lane_id      = lane_id ^ transposed_lane_id_mask;
+//
 //   constexpr int M_MMA_WARP_COUNT       = BLOCK_TILE_M / WARP_TILE_M;
 //   constexpr int M_GROUP_COUNT_PER_WARP = WARP_TILE_M / 8;
 //   constexpr int N_GROUP_COUNT_PER_WARP = WARP_TILE_N / 16;
-// 
+//
 //   constexpr int MMA_REG_BUFFER_SIZE    = 2;
 //   constexpr int MMA_REG_BUFFER_INDEX_0 = 0;
 //   constexpr int MMA_REG_BUFFER_INDEX_1 = 1;
@@ -3605,305 +5662,332 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
 //     T _1x8[8];
 //   };
 //   _2x4_or_1x8 C_transposed[M_GROUP_COUNT_PER_WARP][N_GROUP_COUNT_PER_WARP / 2];
-// 
+//
 //   const int m_warp_offset = warp_id % M_MMA_WARP_COUNT * WARP_TILE_M;
 //   const int n_warp_offset = warp_id / M_MMA_WARP_COUNT * WARP_TILE_N;
-// 
+//
 //   const int A_ldg_reg_2_A_sm_partial_offset =
 //     lane_id / 16 * A_sm_dim2 * A_sm_dim3 + (warp_id * 16 + lane_id % 16) * A_sm_dim3;
-// 
+//
 //   const int B_ldg_reg_2_B_sm_partial_offset =
 //     (lane_id % 16) / 8 * B_sm_dim2 * B_sm_dim3 + (lane_id % 16) % 8 * 8 + (warp_id * 2 + lane_id / 16) * B_sm_dim3;
-// 
+//
 //   const int A_global_partial_offset = (m_block_offset + warp_id * 16 + lane_id % 16) * K + lane_id / 16 * 8;
 //   const int B_global_partial_offset = lane_id % 16 * N + n_block_offset + warp_id * 16 + lane_id / 16 * 8;
-// 
+//
 //   const T* A_global_ptr_for_ldg = &A[A_global_partial_offset];
 //   const T* B_global_ptr_for_ldg = &B[B_global_partial_offset];
-// 
+//
 //   const T* A_sm_ptr_for_ldg = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset];
 //   const T* B_sm_ptr_for_ldg = &data.mma.B_sm[B_ldg_reg_2_B_sm_partial_offset];
-// 
+//
 //   const int A_sm_2_A_mma_reg_partial_offset =
 //     lane_id % 16 / 8 * A_sm_dim2 * A_sm_dim3 + (m_warp_offset + lane_id % 8) * A_sm_dim3;
-// 
+//
 //   const int B_sm_2_B_mma_reg_partial_offset = transposed_lane_id % 16 / 8 * B_sm_dim2 * B_sm_dim3
 //                                               + (n_warp_offset + transposed_lane_id / 16 * 8) / 8 * B_sm_dim3
 //                                               + transposed_lane_id % 8 * 8;
-// 
+//
 //   const T* A_sm_ptr_for_mma = &data.mma.A_sm[A_sm_2_A_mma_reg_partial_offset + lane_id / 16 * 8 * A_sm_dim3];
 //   const T* B_sm_ptr_for_mma = &data.mma.B_sm[B_sm_2_B_mma_reg_partial_offset];
-// 
-// #define A_global_2_ldg_reg(k_loop_offset_, ldg_reg_buffer_index, loop)                                                 \
-//   {                                                                                                                    \
-//     /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */                                             \
-//     /* const int k = lane_id / 16 * 8; */                                                                              \
-//     FETCH_FLOAT4_WITH_PTR(&A_ldg_reg[ldg_reg_buffer_index][loop][0],                                                   \
-//                           A_global_ptr_for_ldg + (loop) * WARP_COUNT * 16 * K + k_loop_offset_);                       \
+//
+// #define A_global_2_ldg_reg(k_loop_offset_, ldg_reg_buffer_index, loop) \
+//   { \
+//     /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */ \
+//     /* const int k = lane_id / 16 * 8; */ \
+//     FETCH_FLOAT4_WITH_PTR(&A_ldg_reg[ldg_reg_buffer_index][loop][0], \
+//                           A_global_ptr_for_ldg + (loop) * WARP_COUNT * 16 * K + k_loop_offset_); \
 //   }
-// 
-// #define B_global_2_ldg_reg(k_loop_offset_, ldg_reg_buffer_index, loop)                                                 \
-//   {                                                                                                                    \
-//     /* const int k = lane_id % 16;                                           */                                        \
-//     /* const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;  */                                        \
-//     FETCH_FLOAT4_WITH_PTR(&B_ldg_reg[ldg_reg_buffer_index][loop][0],                                                   \
-//                           B_global_ptr_for_ldg + (loop) * WARP_COUNT * 16 + (k_loop_offset_) * N);                     \
+//
+// #define B_global_2_ldg_reg(k_loop_offset_, ldg_reg_buffer_index, loop) \
+//   { \
+//     /* const int k = lane_id % 16;                                           */ \
+//     /* const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;  */ \
+//     FETCH_FLOAT4_WITH_PTR(&B_ldg_reg[ldg_reg_buffer_index][loop][0], \
+//                           B_global_ptr_for_ldg + (loop) * WARP_COUNT * 16 + (k_loop_offset_) * N); \
 //   }
-// 
-// #define A_ldg_reg_2_sm(ldg_sm_buf_index, ldg_reg_buffer_index, loop)                                                   \
-//   {                                                                                                                    \
-//     /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */                                             \
-//     /* const int k = lane_id / 16 * 8;  */                                                                             \
-//     STORE_FLOAT4_WITH_PTR(A_sm_ptr_for_ldg + loop * WARP_COUNT * 16 * A_sm_dim3                                        \
-//                             + (ldg_sm_buf_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3,                                  \
-//                           &A_ldg_reg[ldg_reg_buffer_index][loop][0]);                                                  \
+//
+// #define A_ldg_reg_2_sm(ldg_sm_buf_index, ldg_reg_buffer_index, loop) \
+//   { \
+//     /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */ \
+//     /* const int k = lane_id / 16 * 8;  */ \
+//     STORE_FLOAT4_WITH_PTR(A_sm_ptr_for_ldg + loop * WARP_COUNT * 16 * A_sm_dim3 \
+//                             + (ldg_sm_buf_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3, \
+//                           &A_ldg_reg[ldg_reg_buffer_index][loop][0]); \
 //   }
-// 
-// #define B_ldg_reg_2_sm(ldg_sm_buf_index, ldg_reg_buffer_index, loop)                                                   \
-//   {                                                                                                                    \
-//     /*const int k = lane_id % 16; */                                                                                   \
-//     /*const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;*/                                           \
-//     STORE_FLOAT4_WITH_PTR(B_sm_ptr_for_ldg + (loop) * WARP_COUNT * 2 * B_sm_dim3                                       \
-//                             + (ldg_sm_buf_index) * B_sm_dim1 * B_sm_dim2 * B_sm_dim3,                                  \
-//                           &B_ldg_reg[ldg_reg_buffer_index][loop][0]);                                                  \
+//
+// #define B_ldg_reg_2_sm(ldg_sm_buf_index, ldg_reg_buffer_index, loop) \
+//   { \
+//     /*const int k = lane_id % 16; */ \
+//     /*const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;*/ \
+//     STORE_FLOAT4_WITH_PTR(B_sm_ptr_for_ldg + (loop) * WARP_COUNT * 2 * B_sm_dim3 \
+//                             + (ldg_sm_buf_index) * B_sm_dim1 * B_sm_dim2 * B_sm_dim3, \
+//                           &B_ldg_reg[ldg_reg_buffer_index][loop][0]); \
 //   }
-// 
-// #define sm_2_A_mma_reg(ldg_sm_buf_index, mma_reg_buffer_index, group)                                                  \
-//   if constexpr (M_GROUP_COUNT_PER_WARP == 1) {                                                                         \
-//     /* for (int group = 0; group < M_GROUP_COUNT_PER_WARP; ++group) */ {                                               \
-//       uint32_t src = __cvta_generic_to_shared(A_sm_ptr_for_mma + (group) * 8 * A_sm_dim3                               \
-//                                               + (ldg_sm_buf_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3);               \
-//       asm volatile("ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];"                                          \
-//                    : "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][0]),                                     \
-//                      "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][2])                                      \
-//                    : "r"(src));                                                                                        \
-//     }                                                                                                                  \
-//   }                                                                                                                    \
-//   else if constexpr (M_GROUP_COUNT_PER_WARP % 2 == 0) {                                                                \
-//     /*for (int group = 0; group < M_GROUP_COUNT_PER_WARP; group += 2) */ {                                             \
-//       uint32_t src = __cvta_generic_to_shared(A_sm_ptr_for_mma + (group) * 8 * A_sm_dim3                               \
-//                                               + (ldg_sm_buf_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3);               \
-//       asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];"                                  \
-//                    : "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][0]),                                     \
-//                      "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][2]),                                     \
-//                      "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group + 1][0]),                                 \
-//                      "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group + 1][2])                                  \
-//                    : "r"(src));                                                                                        \
-//     }                                                                                                                  \
-//   }                                                                                                                    \
-//   else {                                                                                                               \
-//     static_assert(M_GROUP_COUNT_PER_WARP == 1 || M_GROUP_COUNT_PER_WARP % 2 == 0);                                     \
+//
+// #define sm_2_A_mma_reg(ldg_sm_buf_index, mma_reg_buffer_index, group) \
+//   if constexpr (M_GROUP_COUNT_PER_WARP == 1) { \
+//     /* for (int group = 0; group < M_GROUP_COUNT_PER_WARP; ++group) */ { \
+//       uint32_t src = __cvta_generic_to_shared(A_sm_ptr_for_mma + (group) * 8 * A_sm_dim3 \
+//                                               + (ldg_sm_buf_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3); \
+//       asm volatile("ldmatrix.sync.aligned.m8n8.x2.shared.b16 {%0, %1}, [%2];" \
+//                    : "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][0]), \
+//                      "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][2]) \
+//                    : "r"(src)); \
+//     } \
+//   } \
+//   else if constexpr (M_GROUP_COUNT_PER_WARP % 2 == 0) { \
+//     /*for (int group = 0; group < M_GROUP_COUNT_PER_WARP; group += 2) */ { \
+//       uint32_t src = __cvta_generic_to_shared(A_sm_ptr_for_mma + (group) * 8 * A_sm_dim3 \
+//                                               + (ldg_sm_buf_index) * A_sm_dim1 * A_sm_dim2 * A_sm_dim3); \
+//       asm volatile("ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];" \
+//                    : "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][0]), \
+//                      "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group][2]), \
+//                      "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group + 1][0]), \
+//                      "=r"(*(uint32_t*)&A_mma_reg[mma_reg_buffer_index][group + 1][2]) \
+//                    : "r"(src)); \
+//     } \
+//   } \
+//   else { \
+//     static_assert(M_GROUP_COUNT_PER_WARP == 1 || M_GROUP_COUNT_PER_WARP % 2 == 0); \
 //   }
-// 
-// #define sm_2_B_mma_reg(ldg_sm_buf_index, mma_reg_buffer_index, group)                                                  \
-//   /* for (int group = 0; group < N_GROUP_COUNT_PER_WARP; ++group) */ {                                                 \
-//     uint32_t src = __cvta_generic_to_shared(B_sm_ptr_for_mma + (group) * 2 * B_sm_dim3                                 \
-//                                             + (ldg_sm_buf_index) * B_sm_dim1 * B_sm_dim2 * B_sm_dim3);                 \
-//     asm volatile("ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0, %1, %2, %3}, [%4];"                              \
-//                  : "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][0]),                                       \
-//                    "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][2]),                                       \
-//                    "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][4]),                                       \
-//                    "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][6])                                        \
-//                  : "r"(src));                                                                                          \
+//
+// #define sm_2_B_mma_reg(ldg_sm_buf_index, mma_reg_buffer_index, group) \
+//   /* for (int group = 0; group < N_GROUP_COUNT_PER_WARP; ++group) */ { \
+//     uint32_t src = __cvta_generic_to_shared(B_sm_ptr_for_mma + (group) * 2 * B_sm_dim3 \
+//                                             + (ldg_sm_buf_index) * B_sm_dim1 * B_sm_dim2 * B_sm_dim3); \
+//     asm volatile("ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0, %1, %2, %3}, [%4];" \
+//                  : "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][0]), \
+//                    "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][2]), \
+//                    "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][4]), \
+//                    "=r"(*(uint32_t*)&B_mma_reg[mma_reg_buffer_index][group][6]) \
+//                  : "r"(src)); \
 //   }
-// 
-//   T* C_ptr = &C[(m_block_offset + m_warp_offset + lane_id / 4) * N + n_block_offset + n_warp_offset + lane_id % 4 * 8];
-// 
-// #define ldm_mma_sts_stg(ldm_sm_buffer_index,                                                                           \
-//                         ldm_reg_buffer_index,                                                                          \
-//                         mma_reg_buffer_index,                                                                          \
-//                         sts_sm_base_index,                                                                             \
-//                         ldg_k_offset,                                                                                  \
-//                         rank,                                                                                          \
-//                         ldm_switch,                                                                                    \
-//                         mma_switch,                                                                                    \
-//                         sts_switch,                                                                                    \
-//                         stg_switch,                                                                                    \
-//                         ldg_switch)                                                                                    \
-//   {                                                                                                                    \
-//     /* STS */                                                                                                          \
-//     constexpr int MxN_GORUP_COUNT = M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP;                                   \
-//     constexpr int STS_COUNT       = LDG_REG_BUFFER_SIZE * (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                       \
-//     static_assert(STS_COUNT <= MxN_GORUP_COUNT);                                                                       \
-//     if constexpr (sts_switch && MxN_GORUP_COUNT - STS_COUNT <= rank && rank < MxN_GORUP_COUNT) {                       \
-//       constexpr int sts_rank        = rank - (MxN_GORUP_COUNT - STS_COUNT);                                            \
-//       constexpr int sts_addr_offset = sts_rank / (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                \
-//       constexpr int sts_loop        = sts_rank % (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                \
-//       if constexpr (sts_loop < A_LDG_LOOP_COUNT) {                                                                     \
-//         A_ldg_reg_2_sm(sts_sm_base_index + sts_addr_offset, sts_addr_offset, sts_loop);                                \
-//       }                                                                                                                \
-//       if constexpr (A_LDG_LOOP_COUNT <= sts_loop) {                                                                    \
-//         B_ldg_reg_2_sm(sts_sm_base_index + sts_addr_offset, sts_addr_offset, sts_loop - A_LDG_LOOP_COUNT);             \
-//       }                                                                                                                \
-//     }                                                                                                                  \
-//     /* MMA */                                                                                                          \
-//     if constexpr (mma_switch && rank < M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP) {                              \
-//       constexpr int mg = rank % M_GROUP_COUNT_PER_WARP;                                                                \
-//       constexpr int ng = rank / M_GROUP_COUNT_PER_WARP;                                                                \
-//       mma_m16n8k16_row_col(C_mma_reg[mg][ng],                                                                          \
-//                            B_mma_reg[mma_reg_buffer_index][ng],                                                        \
-//                            A_mma_reg[mma_reg_buffer_index][mg],                                                        \
-//                            C_mma_reg[mg][ng]);                                                                         \
-//     }                                                                                                                  \
-//     /* LDM */                                                                                                          \
-//     static_assert(M_GROUP_COUNT_PER_WARP == 1 || M_GROUP_COUNT_PER_WARP % 2 == 0);                                     \
-//     static_assert((M_GROUP_COUNT_PER_WARP + 1) / 2 + N_GROUP_COUNT_PER_WARP < MxN_GORUP_COUNT);                        \
-//     if constexpr (ldm_switch && rank < (M_GROUP_COUNT_PER_WARP + 1) / 2) {                                             \
-//       sm_2_A_mma_reg(ldm_sm_buffer_index, ldm_reg_buffer_index, rank * 2);                                             \
-//     }                                                                                                                  \
-//     if constexpr (ldm_switch && (M_GROUP_COUNT_PER_WARP + 1) / 2 <= rank                                               \
-//                   && rank < (M_GROUP_COUNT_PER_WARP + 1) / 2 + N_GROUP_COUNT_PER_WARP) {                               \
-//       sm_2_B_mma_reg(ldm_sm_buffer_index, ldm_reg_buffer_index, rank - (M_GROUP_COUNT_PER_WARP + 1) / 2);              \
-//     }                                                                                                                  \
-//     /* LDG */                                                                                                          \
-//     if constexpr (ldg_switch && rank < LDG_REG_BUFFER_SIZE * (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT)) {                  \
-//       constexpr int ldg_addr_offset = rank / (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                    \
-//       constexpr int k_offset        = ldg_addr_offset * LOOP_TILE_K;                                                   \
-//       constexpr int ldg_loop        = rank % (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT);                                    \
-//       if constexpr (ldg_loop < A_LDG_LOOP_COUNT) {                                                                     \
-//         A_global_2_ldg_reg(ldg_k_offset + k_offset, ldg_addr_offset, ldg_loop);                                        \
-//       }                                                                                                                \
-//       if constexpr (A_LDG_LOOP_COUNT <= ldg_loop) {                                                                    \
-//         B_global_2_ldg_reg(ldg_k_offset + k_offset, ldg_addr_offset, ldg_loop - A_LDG_LOOP_COUNT);                     \
-//       }                                                                                                                \
-//     }                                                                                                                  \
-//     /* STG */                                                                                                          \
-//     if constexpr (stg_switch && rank < M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP) {                              \
-//       constexpr int mg = rank % M_GROUP_COUNT_PER_WARP;                                                                \
-//       constexpr int ng = rank / M_GROUP_COUNT_PER_WARP;                                                                \
-//       T casted[4]      = {C_mma_reg[mg][ng][0], C_mma_reg[mg][ng][1], C_mma_reg[mg][ng][2], C_mma_reg[mg][ng][3]};     \
-//       asm volatile("movmatrix.sync.aligned.m8n8.trans.b16 %0, %1;\n"                                                   \
-//                    : "=r"(*(uint32_t*)&C_transposed[mg][ng / 2]._2x4[ng % 2][0])                                       \
-//                    : "r"(*(uint32_t*)&casted[0]));                                                                     \
-//       asm volatile("movmatrix.sync.aligned.m8n8.trans.b16 %0, %1;\n"                                                   \
-//                    : "=r"(*(uint32_t*)&C_transposed[mg][ng / 2]._2x4[ng % 2][2])                                       \
-//                    : "r"(*(uint32_t*)&casted[2]));                                                                     \
-//       shfl_23_and_01(C_transposed[mg][ng / 2]._2x4[ng % 2], 0x1, lane_id);                                             \
-//       if constexpr ((ng + 1) % 2 == 0) {                                                                               \
-//         shfl_4567_and_0123(C_transposed[mg][ng / 2]._1x8, 0x2, lane_id);                                               \
-//         asm volatile("st.global.wt.v4.f32 [%0], {%1, %2, %3, %4};"                                                     \
-//                      :                                                                                                 \
-//                      : "l"(C_ptr + mg * 8 * N + (ng - 1) * 16),                                                        \
-//                        "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[0]),                                          \
-//                        "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[2]),                                          \
-//                        "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[4]),                                          \
-//                        "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[6])                                           \
-//                      : "memory");                                                                                      \
-//       }                                                                                                                \
-//     }                                                                                                                  \
+//
+//   T* C_ptr = &C[(m_block_offset + m_warp_offset + lane_id / 4) * N + n_block_offset + n_warp_offset + lane_id % 4 *
+//   8];
+//
+// #define ldm_mma_sts_stg(ldm_sm_buffer_index, \
+//                         ldm_reg_buffer_index, \
+//                         mma_reg_buffer_index, \
+//                         sts_sm_base_index, \
+//                         ldg_k_offset, \
+//                         rank, \
+//                         ldm_switch, \
+//                         mma_switch, \
+//                         sts_switch, \
+//                         stg_switch, \
+//                         ldg_switch) \
+//   { \
+//     /* STS */ \
+//     constexpr int MxN_GORUP_COUNT = M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP; \
+//     constexpr int STS_COUNT       = LDG_REG_BUFFER_SIZE * (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT); \
+//     static_assert(STS_COUNT <= MxN_GORUP_COUNT); \
+//     if constexpr (sts_switch && MxN_GORUP_COUNT - STS_COUNT <= rank && rank < MxN_GORUP_COUNT) { \
+//       constexpr int sts_rank        = rank - (MxN_GORUP_COUNT - STS_COUNT); \
+//       constexpr int sts_addr_offset = sts_rank / (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT); \
+//       constexpr int sts_loop        = sts_rank % (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT); \
+//       if constexpr (sts_loop < A_LDG_LOOP_COUNT) { \
+//         A_ldg_reg_2_sm(sts_sm_base_index + sts_addr_offset, sts_addr_offset, sts_loop); \
+//       } \
+//       if constexpr (A_LDG_LOOP_COUNT <= sts_loop) { \
+//         B_ldg_reg_2_sm(sts_sm_base_index + sts_addr_offset, sts_addr_offset, sts_loop - A_LDG_LOOP_COUNT); \
+//       } \
+//     } \
+//     /* MMA */ \
+//     if constexpr (mma_switch && rank < M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP) { \
+//       constexpr int mg = rank % M_GROUP_COUNT_PER_WARP; \
+//       constexpr int ng = rank / M_GROUP_COUNT_PER_WARP; \
+//       mma_m16n8k16_row_col(C_mma_reg[mg][ng], \
+//                            B_mma_reg[mma_reg_buffer_index][ng], \
+//                            A_mma_reg[mma_reg_buffer_index][mg], \
+//                            C_mma_reg[mg][ng]); \
+//     } \
+//     /* LDM */ \
+//     static_assert(M_GROUP_COUNT_PER_WARP == 1 || M_GROUP_COUNT_PER_WARP % 2 == 0); \
+//     static_assert((M_GROUP_COUNT_PER_WARP + 1) / 2 + N_GROUP_COUNT_PER_WARP < MxN_GORUP_COUNT); \
+//     if constexpr (ldm_switch && rank < (M_GROUP_COUNT_PER_WARP + 1) / 2) { \
+//       sm_2_A_mma_reg(ldm_sm_buffer_index, ldm_reg_buffer_index, rank * 2); \
+//     } \
+//     if constexpr (ldm_switch && (M_GROUP_COUNT_PER_WARP + 1) / 2 <= rank \
+//                   && rank < (M_GROUP_COUNT_PER_WARP + 1) / 2 + N_GROUP_COUNT_PER_WARP) { \
+//       sm_2_B_mma_reg(ldm_sm_buffer_index, ldm_reg_buffer_index, rank - (M_GROUP_COUNT_PER_WARP + 1) / 2); \
+//     } \
+//     /* LDG */ \
+//     if constexpr (ldg_switch && rank < LDG_REG_BUFFER_SIZE * (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT)) { \
+//       constexpr int ldg_addr_offset = rank / (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT); \
+//       constexpr int k_offset        = ldg_addr_offset * LOOP_TILE_K; \
+//       constexpr int ldg_loop        = rank % (A_LDG_LOOP_COUNT + B_LDG_LOOP_COUNT); \
+//       if constexpr (ldg_loop < A_LDG_LOOP_COUNT) { \
+//         A_global_2_ldg_reg(ldg_k_offset + k_offset, ldg_addr_offset, ldg_loop); \
+//       } \
+//       if constexpr (A_LDG_LOOP_COUNT <= ldg_loop) { \
+//         B_global_2_ldg_reg(ldg_k_offset + k_offset, ldg_addr_offset, ldg_loop - A_LDG_LOOP_COUNT); \
+//       } \
+//     } \
+//     /* STG */ \
+//     if constexpr (stg_switch && rank < M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP) { \
+//       constexpr int mg = rank % M_GROUP_COUNT_PER_WARP; \
+//       constexpr int ng = rank / M_GROUP_COUNT_PER_WARP; \
+//       T casted[4]      = {C_mma_reg[mg][ng][0], C_mma_reg[mg][ng][1], C_mma_reg[mg][ng][2], C_mma_reg[mg][ng][3]}; \
+//       asm volatile("movmatrix.sync.aligned.m8n8.trans.b16 %0, %1;\n" \
+//                    : "=r"(*(uint32_t*)&C_transposed[mg][ng / 2]._2x4[ng % 2][0]) \
+//                    : "r"(*(uint32_t*)&casted[0])); \
+//       asm volatile("movmatrix.sync.aligned.m8n8.trans.b16 %0, %1;\n" \
+//                    : "=r"(*(uint32_t*)&C_transposed[mg][ng / 2]._2x4[ng % 2][2]) \
+//                    : "r"(*(uint32_t*)&casted[2])); \
+//       shfl_23_and_01(C_transposed[mg][ng / 2]._2x4[ng % 2], 0x1, lane_id); \
+//       if constexpr ((ng + 1) % 2 == 0) { \
+//         shfl_4567_and_0123(C_transposed[mg][ng / 2]._1x8, 0x2, lane_id); \
+//         asm volatile("st.global.wt.v4.f32 [%0], {%1, %2, %3, %4};" \
+//                      : \
+//                      : "l"(C_ptr + mg * 8 * N + (ng - 1) * 16), \
+//                        "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[0]), \
+//                        "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[2]), \
+//                        "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[4]), \
+//                        "f"(*(const float*)&C_transposed[mg][ng / 2]._1x8[6]) \
+//                      : "memory"); \
+//       } \
+//     } \
 //   }
-// 
+//
 // // FIXME This code is really stupid. Please find a way to optimize it as soon as possible.
-// #define alternate_ldm_mma_sts_stg(ldm_sm_buf_index,                                                                    \
-//                                   ldm_reg_buf_index,                                                                   \
-//                                   mma_reg_buf_index,                                                                   \
-//                                   sts_sm_base_index,                                                                   \
-//                                   ldg_k_offset,                                                                        \
-//                                   ldm_switch,                                                                          \
-//                                   mma_switch,                                                                          \
-//                                   sts_switch,                                                                          \
-//                                   stg_switch,                                                                          \
-//                                   ldg_switch)                                                                          \
-//   static_assert(M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP <= 32);                                                \
+// #define alternate_ldm_mma_sts_stg(ldm_sm_buf_index, \
+//                                   ldm_reg_buf_index, \
+//                                   mma_reg_buf_index, \
+//                                   sts_sm_base_index, \
+//                                   ldg_k_offset, \
+//                                   ldm_switch, \
+//                                   mma_switch, \
+//                                   sts_switch, \
+//                                   stg_switch, \
+//                                   ldg_switch) \
+//   static_assert(M_GROUP_COUNT_PER_WARP * N_GROUP_COUNT_PER_WARP <= 32); \
 //   /* clang-format off */ \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  0, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  1, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  2, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  3, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  4, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  5, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  6, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  7, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  8, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  9, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 10, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 11, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 12, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 13, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 14, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 15, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 16, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 17, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 18, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 19, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 20, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 21, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 22, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 23, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 24, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 25, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 26, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 27, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 28, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 29, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 30, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
-//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 31, ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  0,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  1,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  2,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  3,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  4,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  5,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  6,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  7,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  8,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset,  9,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 10,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 11,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 12,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 13,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 14,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 15,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 16,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 17,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 18,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 19,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 20,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 21,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 22,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 23,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 24,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 25,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 26,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 27,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 28,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 29,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \
+//   ldm_mma_sts_stg(ldm_sm_buf_index, ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 30,
+//   ldm_switch, mma_switch, sts_switch, stg_switch, ldg_switch);         \ ldm_mma_sts_stg(ldm_sm_buf_index,
+//   ldm_reg_buf_index, mma_reg_buf_index, sts_sm_base_index, ldg_k_offset, 31, ldm_switch, mma_switch, sts_switch,
+//   stg_switch, ldg_switch);
 //   /* clang-format on */
-// 
+//
 //   alternate_ldm_mma_sts_stg(0, 0, 0, 0, 0, false, false, false, false, true);
 //   alternate_ldm_mma_sts_stg(0, 0, 0, 0, 0, false, false, true, false, false);
-// 
+//
 //   __syncthreads();
-// 
+//
 //   alternate_ldm_mma_sts_stg(0, MMA_REG_BUFFER_INDEX_0, 0, 0, 0, true, false, false, false, false);
-// 
+//
 //   alternate_ldm_mma_sts_stg(0, 0, 0, 0, (LOOP_TILE_K * 2), false, false, false, false, true);
-// 
-// #define main_loop_x_2(k_loop_offset)                                                                                   \
-//   {                                                                                                                    \
-//     static_assert((k_loop_offset) % LOOP_TILE_K == 0);                                                                 \
-//     constexpr int ldg_sm_buffer_index = (((k_loop_offset) / LOOP_TILE_K) & 0x2);                                       \
-//     alternate_ldm_mma_sts_stg((ldg_sm_buffer_index + 1),                                                               \
-//                               MMA_REG_BUFFER_INDEX_1,                                                                  \
-//                               MMA_REG_BUFFER_INDEX_0,                                                                  \
-//                               (ldg_sm_buffer_index ^ 2),                                                               \
-//                               0,                                                                                       \
-//                               true,                                                                                    \
-//                               true,                                                                                    \
-//                               true,                                                                                    \
-//                               false,                                                                                   \
-//                               false);                                                                                  \
+//
+// #define main_loop_x_2(k_loop_offset) \
+//   { \
+//     static_assert((k_loop_offset) % LOOP_TILE_K == 0); \
+//     constexpr int ldg_sm_buffer_index = (((k_loop_offset) / LOOP_TILE_K) & 0x2); \
+//     alternate_ldm_mma_sts_stg((ldg_sm_buffer_index + 1), \
+//                               MMA_REG_BUFFER_INDEX_1, \
+//                               MMA_REG_BUFFER_INDEX_0, \
+//                               (ldg_sm_buffer_index ^ 2), \
+//                               0, \
+//                               true, \
+//                               true, \
+//                               true, \
+//                               false, \
+//                               false); \
 //                                                                                                                        \
-//     __syncthreads();                                                                                                   \
+//     __syncthreads(); \
 //                                                                                                                        \
-//     alternate_ldm_mma_sts_stg(0, 0, 0, 0, (k_loop_offset), false, false, false, false, true);                          \
+//     alternate_ldm_mma_sts_stg(0, 0, 0, 0, (k_loop_offset), false, false, false, false, true); \
 //                                                                                                                        \
-//     alternate_ldm_mma_sts_stg((ldg_sm_buffer_index ^ 2),                                                               \
-//                               MMA_REG_BUFFER_INDEX_0,                                                                  \
-//                               MMA_REG_BUFFER_INDEX_1,                                                                  \
-//                               0,                                                                                       \
-//                               0,                                                                                       \
-//                               true,                                                                                    \
-//                               true,                                                                                    \
-//                               false,                                                                                   \
-//                               false,                                                                                   \
-//                               false);                                                                                  \
+//     alternate_ldm_mma_sts_stg((ldg_sm_buffer_index ^ 2), \
+//                               MMA_REG_BUFFER_INDEX_0, \
+//                               MMA_REG_BUFFER_INDEX_1, \
+//                               0, \
+//                               0, \
+//                               true, \
+//                               true, \
+//                               false, \
+//                               false, \
+//                               false); \
 //   }
-// 
-// #define main_loop_x_4(base)                                                                                            \
-//   main_loop_x_2(base);                                                                                                 \
-//   main_loop_x_2(base + LOOP_TILE_K * 2);
-// 
-// #define main_loop_x_8(base)                                                                                            \
-//   main_loop_x_4(base);                                                                                                 \
-//   main_loop_x_4(base + LOOP_TILE_K * 4);
-// 
-// #define main_loop_x_16(base)                                                                                           \
-//   main_loop_x_8(base);                                                                                                 \
-//   main_loop_x_8(base + LOOP_TILE_K * 8);
-// 
-// #define main_loop_x_32(base)                                                                                           \
-//   main_loop_x_16(base);                                                                                                \
-//   main_loop_x_16(base + LOOP_TILE_K * 16);
-// 
-// #define main_loop_x_64(base)                                                                                           \
-//   main_loop_x_32(base);                                                                                                \
-//   main_loop_x_32(base + LOOP_TILE_K * 32);
-// 
-// #define main_loop_x_128(base)                                                                                          \
-//   main_loop_x_64(base);                                                                                                \
-//   main_loop_x_64(base + LOOP_TILE_K * 64);
-// 
+//
+// #define main_loop_x_4(base) \
+//   main_loop_x_2(base); \ main_loop_x_2(base + LOOP_TILE_K * 2);
+//
+// #define main_loop_x_8(base) \
+//   main_loop_x_4(base); \ main_loop_x_4(base + LOOP_TILE_K * 4);
+//
+// #define main_loop_x_16(base) \
+//   main_loop_x_8(base); \ main_loop_x_8(base + LOOP_TILE_K * 8);
+//
+// #define main_loop_x_32(base) \
+//   main_loop_x_16(base); \ main_loop_x_16(base + LOOP_TILE_K * 16);
+//
+// #define main_loop_x_64(base) \
+//   main_loop_x_32(base); \ main_loop_x_32(base + LOOP_TILE_K * 32);
+//
+// #define main_loop_x_128(base) \
+//   main_loop_x_64(base); \ main_loop_x_64(base + LOOP_TILE_K * 64);
+//
 //   main_loop_x_128(LOOP_TILE_K * 4);
 //   main_loop_x_64(LOOP_TILE_K * (4 + 128));
 //   main_loop_x_32(LOOP_TILE_K * (4 + 128 + 64));
@@ -3911,10 +5995,10 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
 //   main_loop_x_8(LOOP_TILE_K * (4 + 128 + 64 + 32 + 16));
 //   main_loop_x_4(LOOP_TILE_K * (4 + 128 + 64 + 32 + 16 + 8));
 //   main_loop_x_2(LOOP_TILE_K * (4 + 128 + 64 + 32 + 16 + 8 + 4));
-// 
+//
 //   int k_loop_offset       = LOOP_TILE_K * 4 + LOOP_TILE_K * (4 + 128 + 64 + 32 + 16 + 8 - 2);
 //   int ldg_sm_buffer_index = ((k_loop_offset / LOOP_TILE_K) & 0x2) ^ 0x2;
-// 
+//
 //   while (k_loop_offset + LOOP_TILE_K * 2 < K) {
 //     alternate_ldm_mma_sts_stg(ldg_sm_buffer_index + 1,
 //                               MMA_REG_BUFFER_INDEX_1,
@@ -3926,18 +6010,18 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
 //                               true,
 //                               false,
 //                               false);
-// 
+//
 //     ldg_sm_buffer_index ^= 2;
 //     k_loop_offset += LOOP_TILE_K * 2;
-// 
+//
 //     __syncthreads();
-// 
+//
 //     alternate_ldm_mma_sts_stg(0, 0, 0, 0, k_loop_offset, false, false, false, false, true);
-// 
+//
 //     alternate_ldm_mma_sts_stg(
 //       ldg_sm_buffer_index, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, 0, true, true, false, false, false);
 //   }
-// 
+//
 //   {
 //     alternate_ldm_mma_sts_stg(ldg_sm_buffer_index + 1,
 //                               MMA_REG_BUFFER_INDEX_1,
@@ -3951,21 +6035,22 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
 //                               false);
 //     ldg_sm_buffer_index ^= 2;
 //     k_loop_offset += LOOP_TILE_K * 2;
-// 
+//
 //     __syncthreads();
-// 
+//
 //     alternate_ldm_mma_sts_stg(
 //       ldg_sm_buffer_index, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, 0, true, true, false, false, false);
 //   }
-// 
+//
 //   {
 //     alternate_ldm_mma_sts_stg(
-//       ldg_sm_buffer_index + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, 0, 0, true, true, false, false, false);
-// 
+//       ldg_sm_buffer_index + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, 0, 0, true, true, false, false,
+//       false);
+//
 //     alternate_ldm_mma_sts_stg(
 //       ldg_sm_buffer_index, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, 0, false, true, false, true, false);
 //   }
-// 
+//
 // #undef A_global_2_ldg_reg
 // #undef A_ldg_reg_2_sm
 // #undef B_global_2_ldg_reg
@@ -4046,10 +6131,11 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__octa_buffer__reduce_instr
   const int m_block_offset = blockIdx.y * BLOCK_TILE_M;
   const int n_block_offset = blockIdx.x * BLOCK_TILE_N;
 
-  const int     warp_id                    = threadIdx.x / 32;
-  const int     lane_id                    = threadIdx.x % 32;
-  constexpr int transposed_lane_id_mask[4] = {0x00, 0x18, 0x18, 0x00};
-  const int     transposed_lane_id         = lane_id ^ transposed_lane_id_mask[lane_id / 8];
+  const int warp_id = threadIdx.x / 32;
+  const int lane_id = threadIdx.x % 32;
+  // constexpr int transposed_lane_id_mask[4] = {0x00, 0x18, 0x18, 0x00};
+  const int transposed_lane_id_mask = (lane_id / 8 == 0 || lane_id / 8 == 3) ? 0x00 : 0x18;
+  const int transposed_lane_id      = lane_id ^ transposed_lane_id_mask;
 
   constexpr int M_MMA_WARP_COUNT       = BLOCK_TILE_M / WARP_TILE_M;
   constexpr int M_GROUP_COUNT_PER_WARP = WARP_TILE_M / 8;
@@ -4341,11 +6427,29 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__octa_buffer__reduce_instr
   // global_2_ldg_reg(k_loop_offset + LOOP_TILE_K * 3, LDG_REG_BUFFER_INDEX_3);
 
   while (k_loop_offset + LOOP_TILE_K * 4 < K) {
-    alternate_ldm_mma_sts_stg(
-      LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, 0, 0, 0, true, true, false, false, false);
+    alternate_ldm_mma_sts_stg(LDG_SM_BUFFER_INDEX + 1,
+                              MMA_REG_BUFFER_INDEX_1,
+                              MMA_REG_BUFFER_INDEX_0,
+                              0,
+                              0,
+                              0,
+                              true,
+                              true,
+                              false,
+                              false,
+                              false);
 
-    alternate_ldm_mma_sts_stg(
-      LDG_SM_BUFFER_INDEX + 2, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, 0, 0, true, true, false, false, false);
+    alternate_ldm_mma_sts_stg(LDG_SM_BUFFER_INDEX + 2,
+                              MMA_REG_BUFFER_INDEX_0,
+                              MMA_REG_BUFFER_INDEX_1,
+                              0,
+                              0,
+                              0,
+                              true,
+                              true,
+                              false,
+                              false,
+                              false);
 
     alternate_ldm_mma_sts_stg(LDG_SM_BUFFER_INDEX + 3,
                               MMA_REG_BUFFER_INDEX_1,
@@ -4378,11 +6482,29 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__octa_buffer__reduce_instr
   }
 
   {
-    alternate_ldm_mma_sts_stg(
-      LDG_SM_BUFFER_INDEX + 1, MMA_REG_BUFFER_INDEX_1, MMA_REG_BUFFER_INDEX_0, 0, 0, 0, true, true, false, false, false);
+    alternate_ldm_mma_sts_stg(LDG_SM_BUFFER_INDEX + 1,
+                              MMA_REG_BUFFER_INDEX_1,
+                              MMA_REG_BUFFER_INDEX_0,
+                              0,
+                              0,
+                              0,
+                              true,
+                              true,
+                              false,
+                              false,
+                              false);
 
-    alternate_ldm_mma_sts_stg(
-      LDG_SM_BUFFER_INDEX + 2, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, 0, 0, true, true, false, false, false);
+    alternate_ldm_mma_sts_stg(LDG_SM_BUFFER_INDEX + 2,
+                              MMA_REG_BUFFER_INDEX_0,
+                              MMA_REG_BUFFER_INDEX_1,
+                              0,
+                              0,
+                              0,
+                              true,
+                              true,
+                              false,
+                              false,
+                              false);
 
     alternate_ldm_mma_sts_stg(LDG_SM_BUFFER_INDEX + 3,
                               MMA_REG_BUFFER_INDEX_1,
@@ -4401,17 +6523,8 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__octa_buffer__reduce_instr
 
     __syncthreads();
 
-    alternate_ldm_mma_sts_stg(LDG_SM_BUFFER_INDEX,
-                              MMA_REG_BUFFER_INDEX_0,
-                              MMA_REG_BUFFER_INDEX_1,
-                              0,
-                              0,
-                              0,
-                              true,
-                              true,
-                              false,
-                              false,
-                              false);
+    alternate_ldm_mma_sts_stg(
+      LDG_SM_BUFFER_INDEX, MMA_REG_BUFFER_INDEX_0, MMA_REG_BUFFER_INDEX_1, 0, 0, 0, true, true, false, false, false);
   }
 
   {
@@ -4530,8 +6643,10 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__octa_buffer__reduce_instr
 // define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global);
 // define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing);
 // define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts);
-// define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt);
+define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt);
 define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reduce_IMAD_AND_LEA);
+define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reduce_IMAD_AND_LEA__reduce_MIO);
+define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reduce_IMAD_AND_LEA__reduce_MIO__opt_BAR);
 // define_check_function(fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__octa_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts);
 /* clang-format on */
 
@@ -4572,8 +6687,10 @@ int test(const std::vector<float>& host_A,
   // fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
   // fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
   // fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
-  // fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
   fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reduce_IMAD_AND_LEA___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reduce_IMAD_AND_LEA__reduce_MIO___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
+  fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts__stg_wt__reduce_IMAD_AND_LEA__reduce_MIO__opt_BAR___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
   // fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__octa_buffer__reduce_instructions__reorder_instructions__overlap_reg_2_global__stg_memory_coalecesing__overlap_sts___check_relative_error(fp16_A, fp16_B, fp16_C, M, N, K, host_C);
   /* clang-format on */
 
@@ -4643,7 +6760,7 @@ int main()
     CHECK_CUDA_ERROR();
   }
 
-  test<half>(host_A, host_B, host_C, M, N, K);
+  // test<half>(host_A, host_B, host_C, M, N, K);
   test<__nv_bfloat16>(host_A, host_B, host_C, M, N, K);
 
   CHECK_CUDA_RETURN(cudaFree(A));

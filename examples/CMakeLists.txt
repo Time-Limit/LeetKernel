@@ -5,6 +5,9 @@ find_package(CUDA REQUIRED)
 add_executable(000.test 000.test.cu)
 target_link_libraries(000.test PRIVATE ${CUDA_LIBRARIES})
 
+add_executable(000.query_cuda_config 000.query_cuda_config.cu)
+target_link_libraries(000.query_cuda_config PRIVATE ${CUDA_LIBRARIES})
+
 add_executable(003.matrix_multiplication 003.matrix_multiplication.cu)
 target_link_libraries(003.matrix_multiplication PRIVATE cublas ${CUDA_LIBRARIES})
 

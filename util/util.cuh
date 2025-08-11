@@ -39,6 +39,34 @@ __device__ __inline__ void print_thread_info(const char *prefix) {
 
 #define FETCH_FLOAT4_WITH_PTR(dst, src) *(float4*)(dst) = *(const float4*)(src)
 
+#define FETCH_FLOAT4_PREFETCH_256B_WITH_SRC_PTR(dst, src)                                                              \
+  {                                                                                                                    \
+    asm volatile("ld.global.L2::128B.v4.f32 {%0, %1, %2, %3}, [%4];"                                                   \
+                 : "=f"(dst[0]), "=f"(dst[1]), "=f"(dst[2]), "=f"(dst[3])                                              \
+                 : "l"((const float*)(src)));                                                                          \
+  }
+
+#define FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(dst, src)                                                                 \
+  {                                                                                                                    \
+    asm volatile("ld.global.L1::evict_last.v4.f32 {%0, %1, %2, %3}, [%4];"                                             \
+                 : "=f"(dst[0]), "=f"(dst[1]), "=f"(dst[2]), "=f"(dst[3])                                              \
+                 : "l"((const float*)(src)));                                                                          \
+  }
+
+#define FETCH_FLOAT4_CONST_PREFETCH_256B_WITH_SRC_PTR(dst, src)                                                        \
+  {                                                                                                                    \
+    asm volatile("ld.global.nc.L2::128B.v4.f32 {%0, %1, %2, %3}, [%4];"                                                \
+                 : "=f"(dst[0]), "=f"(dst[1]), "=f"(dst[2]), "=f"(dst[3])                                              \
+                 : "l"((const float*)(src)));                                                                          \
+  }
+
+#define FETCH_FLOAT4_CONST_EVICT_LAST_WITH_SRC_PTR(dst, src)                                                           \
+  {                                                                                                                    \
+    asm volatile("ld.global.nc.L1::evict_last.v4.f32 {%0, %1, %2, %3}, [%4];"                                          \
+                 : "=f"(dst[0]), "=f"(dst[1]), "=f"(dst[2]), "=f"(dst[3])                                              \
+                 : "l"((const float*)(src)));                                                                          \
+  }
+
 #define STORE_FLOAT(dst, src) *(float *)(&(dst)) = *(const float *)(&(src))
 
 #define STORE_FLOAT_WITH_PTR(dst, src) *(float*)((dst)) = *(const float*)((src))
@@ -109,4 +137,18 @@ __inline__ __device__ void mma_m16n8k16_row_col(float (&d)[4], const T (&a)[8], 
   else {
     static_assert(std::is_same<T, half>::value == false && std::is_same<T, __nv_bfloat16>::value == false);
   }
+}
+
+__forceinline__ __device__ uint32_t get_smid()
+{
+  uint32_t smid;
+  asm volatile("mov.u32 %0, %%smid;" : "=r"(smid));
+  return smid;
+}
+
+__forceinline__ uint32_t get_sm_number()
+{
+  uint32_t sm_number;
+  asm volatile("mov.u32 %0, %%nsmid;" : "=r"(sm_number));
+  return sm_number;
 }

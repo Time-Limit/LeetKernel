@@ -38,6 +38,13 @@ int main() {
         printf("Concurrent Kernels: %s\n", deviceProp.concurrentKernels ? "Yes" : "No");
         printf("ECC Enabled: %s\n", deviceProp.ECCEnabled ? "Yes" : "No");
         printf("Compute Mode: %d\n", deviceProp.computeMode);
+        printf("Total Constant Memory: %zu bytes\n", deviceProp.totalConstMem);
+        printf("Max Texture Memory (1D): %d bytes\n", deviceProp.maxTexture1D);
+        printf("Max Texture Memory (2D): %d x %d\n", deviceProp.maxTexture2D[0], deviceProp.maxTexture2D[1]);
+        printf("Max Texture Memory (3D): %d x %d x %d\n",
+               deviceProp.maxTexture3D[0],
+               deviceProp.maxTexture3D[1],
+               deviceProp.maxTexture3D[2]);
     }
 
     return 0;
