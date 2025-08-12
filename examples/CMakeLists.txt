@@ -14,6 +14,9 @@ target_link_libraries(003.matrix_multiplication PRIVATE cublas ${CUDA_LIBRARIES}
 add_executable(004.fp16.mm.ldmatrix 004.fp16.mm.ldmatrix.cu)
 target_link_libraries(004.fp16.mm.ldmatrix PRIVATE cublas cublasLt ${CUDA_LIBRARIES})
 
+add_executable(004.fp16.mm.ldmatrix.test 004.fp16.mm.ldmatrix.test.cu)
+target_link_libraries(004.fp16.mm.ldmatrix.test PRIVATE cublas cublasLt ${CUDA_LIBRARIES})
+
 add_executable(004.fp16.mm.ldmatrix.notrans 004.fp16.mm.ldmatrix.notrans.cu)
 target_link_libraries(004.fp16.mm.ldmatrix.notrans PRIVATE cublas cublasLt ${CUDA_LIBRARIES})
 
