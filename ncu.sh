@@ -37,6 +37,7 @@ METRICS_STR=$(IFS=,; echo "${METRICS[*]}")
 
 # 执行命令
 /usr/local/NVIDIA-Nsight-Compute-2025.2/ncu \
+    -k 'regex:^(?!.*naive).*$' \
     --metrics "$METRICS_STR" \
     "${SECTIONS[@]}" \
     -f -o "${1}.ncu-rep" "${1}"

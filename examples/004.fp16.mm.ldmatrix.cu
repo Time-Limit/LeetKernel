@@ -2,10 +2,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cublas_v2.h>
+#include <cuda/barrier>
 #include <cuda_pipeline_primitives.h>
 #include <cuda_runtime.h>
 #include <cuda_runtime_api.h>
-#include <cuda/barrier>
 #include <random>
 #include <stdexcept>
 #include <type_traits>
@@ -3071,18 +3071,26 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
   const uint64_t A_global_ptr_for_ldg__loop_1__k_0 = (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + 0);
   const uint64_t A_global_ptr_for_ldg__loop_2__k_0 = (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + 0);
   const uint64_t A_global_ptr_for_ldg__loop_3__k_0 = (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + 0);
-  const uint64_t A_global_ptr_for_ldg__loop_0__k_1 = (uint64_t)(A_global_ptr_for_ldg + 0 * WARP_COUNT * 16 * K + LOOP_TILE_K);
-  const uint64_t A_global_ptr_for_ldg__loop_1__k_1 = (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + LOOP_TILE_K);
-  const uint64_t A_global_ptr_for_ldg__loop_2__k_1 = (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + LOOP_TILE_K);
-  const uint64_t A_global_ptr_for_ldg__loop_3__k_1 = (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_0__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 0 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_1__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_2__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_3__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + LOOP_TILE_K);
   const uint64_t B_global_ptr_for_ldg__loop_0__k_0 = (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + 0);
   const uint64_t B_global_ptr_for_ldg__loop_1__k_0 = (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + 0);
   const uint64_t B_global_ptr_for_ldg__loop_2__k_0 = (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + 0);
   const uint64_t B_global_ptr_for_ldg__loop_3__k_0 = (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + 0);
-  const uint64_t B_global_ptr_for_ldg__loop_0__k_1 = (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + LOOP_TILE_K * N);
-  const uint64_t B_global_ptr_for_ldg__loop_1__k_1 = (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + LOOP_TILE_K * N);
-  const uint64_t B_global_ptr_for_ldg__loop_2__k_1 = (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + LOOP_TILE_K * N);
-  const uint64_t B_global_ptr_for_ldg__loop_3__k_1 = (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_0__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_1__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_2__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_3__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + LOOP_TILE_K * N);
 
   const T* A_sm_ptr_for_ldg = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset];
   const T* B_sm_ptr_for_ldg = &data.mma.B_sm[B_ldg_reg_2_B_sm_partial_offset];
@@ -3108,7 +3116,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
     /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */                                             \
     /* const int k = lane_id / 16 * 8; */                                                                              \
     if constexpr (cache_policy == LDG_SWITCH_ON_EVICT_LAST) {                                                          \
-      FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);                       \
+      FETCH_FLOAT4_EVICT_LAST_AND_PREFETCH_256B_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);     \
     }                                                                                                                  \
     else {                                                                                                             \
       FETCH_FLOAT4_PREFETCH_256B_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);                    \
@@ -3120,7 +3128,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
     /* const int k = lane_id % 16;                                           */                                        \
     /* const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;  */                                        \
     if constexpr (cache_policy == LDG_SWITCH_ON_EVICT_LAST) {                                                          \
-      FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);                       \
+      FETCH_FLOAT4_EVICT_LAST_AND_PREFETCH_256B_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);     \
     }                                                                                                                  \
     else {                                                                                                             \
       FETCH_FLOAT4_PREFETCH_256B_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);                    \
@@ -3702,18 +3710,26 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
   const uint64_t A_global_ptr_for_ldg__loop_1__k_0 = (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + 0);
   const uint64_t A_global_ptr_for_ldg__loop_2__k_0 = (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + 0);
   const uint64_t A_global_ptr_for_ldg__loop_3__k_0 = (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + 0);
-  const uint64_t A_global_ptr_for_ldg__loop_0__k_1 = (uint64_t)(A_global_ptr_for_ldg + 0 * WARP_COUNT * 16 * K + LOOP_TILE_K);
-  const uint64_t A_global_ptr_for_ldg__loop_1__k_1 = (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + LOOP_TILE_K);
-  const uint64_t A_global_ptr_for_ldg__loop_2__k_1 = (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + LOOP_TILE_K);
-  const uint64_t A_global_ptr_for_ldg__loop_3__k_1 = (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_0__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 0 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_1__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_2__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_3__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + LOOP_TILE_K);
   const uint64_t B_global_ptr_for_ldg__loop_0__k_0 = (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + 0);
   const uint64_t B_global_ptr_for_ldg__loop_1__k_0 = (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + 0);
   const uint64_t B_global_ptr_for_ldg__loop_2__k_0 = (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + 0);
   const uint64_t B_global_ptr_for_ldg__loop_3__k_0 = (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + 0);
-  const uint64_t B_global_ptr_for_ldg__loop_0__k_1 = (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + LOOP_TILE_K * N);
-  const uint64_t B_global_ptr_for_ldg__loop_1__k_1 = (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + LOOP_TILE_K * N);
-  const uint64_t B_global_ptr_for_ldg__loop_2__k_1 = (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + LOOP_TILE_K * N);
-  const uint64_t B_global_ptr_for_ldg__loop_3__k_1 = (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_0__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_1__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_2__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_3__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + LOOP_TILE_K * N);
 
   const T* A_sm_ptr_for_ldg = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset];
   const T* B_sm_ptr_for_ldg = &data.mma.B_sm[B_ldg_reg_2_B_sm_partial_offset];
@@ -3739,7 +3755,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
     /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */                                             \
     /* const int k = lane_id / 16 * 8; */                                                                              \
     if constexpr (cache_policy == LDG_SWITCH_ON_EVICT_LAST) {                                                          \
-      FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);                       \
+      FETCH_FLOAT4_EVICT_LAST_AND_PREFETCH_256B_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);     \
     }                                                                                                                  \
     else {                                                                                                             \
       FETCH_FLOAT4_PREFETCH_256B_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);                    \
@@ -3751,7 +3767,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
     /* const int k = lane_id % 16;                                           */                                        \
     /* const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;  */                                        \
     if constexpr (cache_policy == LDG_SWITCH_ON_EVICT_LAST) {                                                          \
-      FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);                       \
+      FETCH_FLOAT4_EVICT_LAST_AND_PREFETCH_256B_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);     \
     }                                                                                                                  \
     else {                                                                                                             \
       FETCH_FLOAT4_PREFETCH_256B_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);                    \
@@ -4337,18 +4353,26 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
   const uint64_t A_global_ptr_for_ldg__loop_1__k_0 = (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + 0);
   const uint64_t A_global_ptr_for_ldg__loop_2__k_0 = (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + 0);
   const uint64_t A_global_ptr_for_ldg__loop_3__k_0 = (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + 0);
-  const uint64_t A_global_ptr_for_ldg__loop_0__k_1 = (uint64_t)(A_global_ptr_for_ldg + 0 * WARP_COUNT * 16 * K + LOOP_TILE_K);
-  const uint64_t A_global_ptr_for_ldg__loop_1__k_1 = (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + LOOP_TILE_K);
-  const uint64_t A_global_ptr_for_ldg__loop_2__k_1 = (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + LOOP_TILE_K);
-  const uint64_t A_global_ptr_for_ldg__loop_3__k_1 = (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_0__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 0 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_1__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 1 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_2__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 2 * WARP_COUNT * 16 * K + LOOP_TILE_K);
+  const uint64_t A_global_ptr_for_ldg__loop_3__k_1 =
+    (uint64_t)(A_global_ptr_for_ldg + 3 * WARP_COUNT * 16 * K + LOOP_TILE_K);
   const uint64_t B_global_ptr_for_ldg__loop_0__k_0 = (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + 0);
   const uint64_t B_global_ptr_for_ldg__loop_1__k_0 = (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + 0);
   const uint64_t B_global_ptr_for_ldg__loop_2__k_0 = (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + 0);
   const uint64_t B_global_ptr_for_ldg__loop_3__k_0 = (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + 0);
-  const uint64_t B_global_ptr_for_ldg__loop_0__k_1 = (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + LOOP_TILE_K * N);
-  const uint64_t B_global_ptr_for_ldg__loop_1__k_1 = (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + LOOP_TILE_K * N);
-  const uint64_t B_global_ptr_for_ldg__loop_2__k_1 = (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + LOOP_TILE_K * N);
-  const uint64_t B_global_ptr_for_ldg__loop_3__k_1 = (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_0__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 0 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_1__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 1 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_2__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 2 * WARP_COUNT * 16 + LOOP_TILE_K * N);
+  const uint64_t B_global_ptr_for_ldg__loop_3__k_1 =
+    (uint64_t)(B_global_ptr_for_ldg + 3 * WARP_COUNT * 16 + LOOP_TILE_K * N);
 
   const T* A_sm_ptr_for_ldg = &data.mma.A_sm[A_ldg_reg_2_A_sm_partial_offset];
   const T* B_sm_ptr_for_ldg = &data.mma.B_sm[B_ldg_reg_2_B_sm_partial_offset];
@@ -4516,7 +4540,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
       if constexpr (false && bar_wait_switch && ldm_rank == 0) {                                                       \
         __syncthreads();                                                                                               \
       }                                                                                                                \
-      if constexpr (bar_wait_switch && ldm_rank == 0) {                                                       \
+      if constexpr (bar_wait_switch && ldm_rank == 0) {                                                                \
         bar->wait(std::move(arrival_token));                                                                           \
       }                                                                                                                \
       if constexpr (ldm_switch && ldm_rank < A_LDM_COUNT) {                                                            \
@@ -5026,7 +5050,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
     /* const int m = (loop * WARP_COUNT + warp_id) * 16 + lane_id % 16; */                                             \
     /* const int k = lane_id / 16 * 8; */                                                                              \
     if constexpr (cache_policy == LDG_SWITCH_ON_EVICT_LAST) {                                                          \
-      FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);                       \
+      FETCH_FLOAT4_EVICT_LAST_AND_PREFETCH_256B_WITH_SRC_PTR(A_ldg_reg[ldg_reg_buffer_index][loop], A_global_ptr);     \
     }                                                                                                                  \
     else {                                                                                                             \
       FETCH_FLOAT4_WITH_PTR(&A_ldg_reg[ldg_reg_buffer_index][loop][0], A_global_ptr);                                  \
@@ -5038,7 +5062,7 @@ fp16_mma_m16n8k16_ldmatrix_trans__overlap_global_2_sm__quadra_buffer__reduce_ins
     /* const int k = lane_id % 16;                                           */                                        \
     /* const int n = (loop * WARP_COUNT + warp_id) * 16 + lane_id / 16 * 8;  */                                        \
     if constexpr (cache_policy == LDG_SWITCH_ON_EVICT_LAST && false) {                                                 \
-      FETCH_FLOAT4_EVICT_LAST_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);                       \
+      FETCH_FLOAT4_EVICT_LAST_AND_PREFETCH_256B_WITH_SRC_PTR(B_ldg_reg[ldg_reg_buffer_index][loop], B_global_ptr);     \
     }                                                                                                                  \
     else {                                                                                                             \
       FETCH_FLOAT4_WITH_PTR(&B_ldg_reg[ldg_reg_buffer_index][loop][0], B_global_ptr);                                  \
